@@ -23,6 +23,14 @@ each with sliders, plots, a "what happened" explanation and "try next" ideas. Sa
 **History** tab to compare two of them on overlaid plots, or export as CSV/JSON.
 Saved runs live in `data/experiments/` (max 100; History has "Delete old runs").
 
+**💬 Assistant** (header button, any tab): ask a local model (Ollama, model from `.env`) about the run
+you're looking at. It sees only a short summary (settings, metrics, events), never raw telemetry, and
+labels each claim **Measured** (from your data) or **Hypothesis** (its reasoning). Numbers it writes that
+aren't in your data are flagged. "Suggest an experiment" returns a checked change that runs only when
+you click **Apply**. Every prompt and reply is logged to `data/assistant_log.jsonl` for you to review.
+The model unloads itself after 2 idle minutes (`ollama ps`). If Ollama is off, the panel says
+"AI offline" and everything else keeps working. Tip: close other GPU-heavy apps before using it.
+
 ## Terminal tools
 ```bash
 .venv/bin/python -m backend.cli hover --alt 2     # take off and hover at 2 m

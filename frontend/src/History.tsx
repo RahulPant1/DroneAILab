@@ -1,6 +1,7 @@
 // Saved runs: list, view, delete, and compare two runs on overlaid plots.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { assistantStore } from './assistant';
 import Chart, { type ChartRun } from './Chart';
 import { exportCsv, exportJson, formatValue, labApi, type Comparison, type ExperimentDef, type SavedRun, type SavedRunSummary } from './lab';
 import RunView from './RunView';
@@ -72,11 +73,18 @@ export default function History() {
 
   const open = async (id: string) => {
     setCmp(null);
-    setView(await labApi.get(id));
+    const run = await labApi.get(id);
+    setView(run);
+    assistantStore.setContext('History', [{ saved_id: run.id, label: run.label }]);
   };
   const compare = async () => {
     setView(null);
-    setCmp(await labApi.compare(picked[0], picked[1]));
+    const c = await labApi.compare(picked[0], picked[1]);
+    setCmp(c);
+    assistantStore.setContext('a History comparison', [
+      { saved_id: c.a.id, label: `A: ${c.a.label}` },
+      { saved_id: c.b.id, label: `B: ${c.b.label}` },
+    ]);
   };
   const remove = async (id: string) => {
     if (!window.confirm('Delete this saved run?')) return;

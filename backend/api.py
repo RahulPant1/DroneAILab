@@ -14,6 +14,10 @@
   GET  /api/runs/{id}, DELETE /api/runs/{id}
   POST /api/runs/delete-old            -> {keep_newest: N}
 
+  POST /api/assistant/ask      -> {question, context: [run refs], history} -> grounded answer
+  POST /api/assistant/suggest  -> {context: [run refs], goal} -> validated suggestion (never auto-run)
+  A run ref is {"saved_id": "..."} or {"experiment_id": "...", "params": {...}, "seed": 0, "label": "..."}.
+
 The LLM is never loaded here: the health check only asks Ollama for its model LIST.
 Run with: .venv/bin/uvicorn backend.api:app --host 127.0.0.1 --port 8001  (or ./run.sh)
 """
@@ -31,6 +35,8 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
+from .ai import assistant as ai_assistant
+from .ai.ollama_client import AIError, AIOffline, OllamaClient
 from .experiments import EXPERIMENTS, ExperimentError, get_experiment
 from .sim.config import GAIN_LIMITS, LIMITS, PRESETS, ConfigError, DroneConfig, get_preset, validate_config
 from .sim.runner import RealtimeSim
@@ -47,6 +53,7 @@ app = FastAPI(title="DroneLab", docs_url="/api/docs", openapi_url="/api/openapi.
 _health_cache: dict = {"at": -1e9, "value": None}
 store = RunStore()
 _heavy_work = threading.Lock()  # one headless run at a time (laptop-safety rule)
+_ai_lock = asyncio.Lock()  # one LLM request at a time
 
 
 def settings() -> dict:
@@ -189,6 +196,68 @@ def delete_run(run_id: str) -> dict:
         return {"deleted": run_id}
     except StorageError as exc:
         raise HTTPException(404, str(exc)) from None
+
+
+# ---- Assistant (Phase 3) ----
+
+
+def get_ai_client() -> OllamaClient:
+    return OllamaClient.from_env()
+
+
+async def _resolve_context(refs) -> list[tuple[str | None, dict]]:
+    """Turn run references into real RunResults, server-side. The client never supplies run data itself."""
+    if not refs:
+        return []
+    if not isinstance(refs, list) or len(refs) > 2:
+        raise HTTPException(400, "Attach at most 2 runs.")
+    runs = []
+    for ref in refs:
+        if not isinstance(ref, dict):
+            raise HTTPException(400, "Each attached run must be an object.")
+        try:
+            if ref.get("saved_id"):
+                record = store.get(str(ref["saved_id"]))
+                runs.append((str(ref.get("label") or "")[:100] or record["label"], record["result"]))
+            elif ref.get("experiment_id"):
+                result = await asyncio.to_thread(_run_experiment, str(ref["experiment_id"]), ref.get("params"), ref.get("seed"))
+                label = str(ref.get("label") or "") or None
+                runs.append((label, result.to_dict()))
+            else:
+                raise HTTPException(400, "A run reference needs 'saved_id' or 'experiment_id'.")
+        except StorageError as exc:
+            raise HTTPException(404, str(exc)) from None
+        except ExperimentError as exc:
+            raise HTTPException(400, str(exc)) from None
+    return runs
+
+
+async def _with_ai(call):
+    if _ai_lock.locked():
+        raise HTTPException(429, "The assistant is still working on the previous request.")
+    async with _ai_lock:
+        try:
+            return await call()
+        except AIOffline as exc:
+            _health_cache.update(at=-1e9, value=None)  # re-check health next time
+            raise HTTPException(503, f"AI offline: {exc}") from None
+        except AIError as exc:
+            raise HTTPException(502, str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+
+@app.post("/api/assistant/ask")
+async def assistant_ask(body: dict) -> dict:
+    runs = await _resolve_context(body.get("context"))
+    history = body.get("history") if isinstance(body.get("history"), list) else None
+    return await _with_ai(lambda: ai_assistant.ask(get_ai_client(), str(body.get("question", "")), runs, history))
+
+
+@app.post("/api/assistant/suggest")
+async def assistant_suggest(body: dict) -> dict:
+    runs = await _resolve_context(body.get("context"))
+    return await _with_ai(lambda: ai_assistant.suggest(get_ai_client(), runs, str(body.get("goal") or "")))
 
 
 def handle_message(session: RealtimeSim, msg) -> dict | None:

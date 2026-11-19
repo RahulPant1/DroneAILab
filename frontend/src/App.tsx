@@ -1,6 +1,8 @@
 // Dashboard shell: header with tabs and status. Fly = Studio + 3D + Telemetry; Lab; History.
 
 import { useEffect, useState } from 'react';
+import Assistant from './Assistant';
+import { assistantStore, useAssistant } from './assistant';
 import Controls from './Controls';
 import History from './History';
 import Lab from './Lab';
@@ -10,13 +12,12 @@ import { api, useSimUi, useThrottledState, type Health } from './sim';
 import Studio from './Studio';
 import Telemetry from './Telemetry';
 
-type TabId = 'fly' | 'lab' | 'history' | 'assistant';
+type TabId = 'fly' | 'lab' | 'history';
 
 const TABS: { id: TabId; label: string; ready: boolean; note?: string }[] = [
   { id: 'fly', label: 'Fly', ready: true },
   { id: 'lab', label: 'Lab', ready: true },
   { id: 'history', label: 'History', ready: true },
-  { id: 'assistant', label: 'Assistant', ready: false, note: 'Phase 3' },
 ];
 
 function useHealth(): Health | null {
@@ -54,6 +55,7 @@ export default function App() {
   const [tab, setTabState] = useState<TabId>(initialTab);
   const [learnSlug, setLearnSlug] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
+  const { open: assistantOpen } = useAssistant();
 
   const setTab = (t: TabId) => {
     setTabState(t);
@@ -76,6 +78,9 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <button className={`assistant-toggle ${assistantOpen ? 'active' : ''}`} onClick={() => assistantStore.setOpen(!assistantOpen)}>
+          💬 Assistant
+        </button>
         <div className="status">
           <span className={`pill ${status === 'open' ? 'ok' : 'bad'}`} title="Live connection to the simulator">Sim {status === 'open' ? 'live' : status}</span>
           <span className={`pill ${health?.llm === 'ok' ? 'ok' : 'off'}`} title={health?.model ?? ''}>
@@ -100,6 +105,7 @@ export default function App() {
       {tab === 'lab' && <main className="scroll"><Lab onLearn={setLearnSlug} /></main>}
       {tab === 'history' && <main className="scroll"><History /></main>}
 
+      {assistantOpen && <Assistant health={health} onApplied={() => setTab('lab')} />}
       {learnSlug && <Learn slug={learnSlug} onClose={() => setLearnSlug(null)} />}
     </div>
   );

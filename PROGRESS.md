@@ -127,4 +127,35 @@ Project 379 MB on disk.
 **Known limitations:** the Vite dev server is the biggest RAM user; the estimator is a teaching-grade complementary
 filter (not an EKF); live flight (Fly tab) still uses perfect sensors and no wind.
 
-## Next: Phase 3 (local LLM assistant). Waiting for "go".
+## Phase 3: Local LLM assistant (done 2026-11-19)
+
+**Built:**
+- `backend/ai/ollama_client.py`: HTTP only; per request `keep_alive 2m`, `num_ctx 8192`, `temperature 0.3`,
+  `think false`; readable offline/error messages.
+- `backend/ai/prompts.py`: system prompts ([Measured]/[Hypothesis], never invent numbers, "I don't know"),
+  a telemetry-free compact run summary (≤ 2 runs, trimmed to ≤ 2k tokens), and the experiment catalogue for suggestions.
+- `backend/ai/schemas.py`: JSON schema for Ollama `format`, plus pydantic shape check and the same range checks
+  as the UI, giving readable rejections.
+- `backend/ai/assistant.py`: ask/suggest, a number check that flags numbers not found in the run data,
+  LaTeX tidy-up, and a JSONL log (rotates at 5 MB).
+- API: `POST /api/assistant/ask`, `POST /api/assistant/suggest`. The run context is rebuilt server-side
+  from saved ids or (experiment, params, seed). One LLM request at a time.
+- Frontend: Assistant side panel on every tab (shows exactly which runs the AI sees), claim badges,
+  unverified-number warnings, a suggestion card with a diff and "Apply & run in Lab" (nothing runs without a click).
+- 26 new tests against a fake Ollama (90 total).
+
+**Acceptance (live, real model `gemma4:e4b-it-q4_K_M`):**
+| Requirement | Result |
+|---|---|
+| Malformed / out-of-range AI configs rejected readably | 10 rejection cases tested (bad JSON, wrong shape, unknown experiment/setting, out of range, no-op, too many changes) |
+| Answers quote real metrics | "[Measured] overshoot 64.27 % and oscillations 6" (exact run values); 0 unverified numbers in 3 live answers |
+| Model unloads after ~2 min idle | unloaded 113 s after the last request (`ollama ps` empty; GPU back to 1.3 GB) |
+| App fully usable with Ollama off | tested with an unreachable Ollama: assistant → "AI offline" (503), the Lab still runs |
+
+**Live performance:** first answer 58 s (includes the model load), then 2–17 s. 100 % GPU at num_ctx 8192
+(no CPU split, so no need for 4096 or the fallback model). RAM available stayed ≥ 4.7 GB while loaded.
+
+**Known limitations:** the model sometimes suggests a different experiment than the one discussed (it's still
+validated and safe); the first answer after idle waits for the model to load; no streaming (the answer appears all at once).
+
+## Next: Phase 4 (basic autonomy) only if the user asks.

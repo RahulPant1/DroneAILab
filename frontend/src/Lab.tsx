@@ -1,11 +1,18 @@
 // Engineering Lab: pick an experiment, set 2–4 sliders, run it headless, read the results.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { assistantStore, useAssistant } from './assistant';
 import { labApi, type ExperimentDef, type Params, type RunResult } from './lab';
 import RunView from './RunView';
 
 function defaults(exp: ExperimentDef): Params {
   return Object.fromEntries(exp.params.map((p) => [p.id, p.default]));
+}
+
+/** Short label like "PID tuning (kp 25, kd 3.5)" listing only settings that differ from the defaults. */
+function runLabel(exp: ExperimentDef, params: Params): string {
+  const changed = exp.params.filter((p) => params[p.id] !== p.default).map((p) => `${p.id} ${params[p.id]}`);
+  return `${exp.title}${changed.length ? ` (${changed.join(', ')})` : ' (defaults)'}`;
 }
 
 export default function Lab({ onLearn }: { onLearn: (slug: string) => void }) {
@@ -24,14 +31,38 @@ export default function Lab({ onLearn }: { onLearn: (slug: string) => void }) {
   }, []);
 
   const exp = experiments.find((e) => e.id === selected);
+  const { pendingApply } = useAssistant();
+  const applyRef = useRef<{ experiment_id: string; params: Params } | null>(null);
+
+  // An AI suggestion the user clicked "Apply" on: switch to that experiment and run it.
+  useEffect(() => {
+    if (!pendingApply) return;
+    const p = assistantStore.takePending();
+    if (!p) return;
+    if (exp && p.experiment_id === exp.id) {
+      setParams(p.params);
+      run(p.params);
+    } else {
+      applyRef.current = p;
+      setSelected(p.experiment_id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingApply]);
 
   useEffect(() => {
-    if (exp) {
+    if (!exp) return;
+    setResult(null);
+    setError('');
+    setSaveMsg('');
+    const pending = applyRef.current;
+    if (pending && pending.experiment_id === exp.id) {
+      applyRef.current = null;
+      setParams(pending.params);
+      run(pending.params);
+    } else {
       setParams(defaults(exp));
-      setResult(null);
-      setError('');
-      setSaveMsg('');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exp]);
 
   const run = async (p: Params = params) => {
@@ -40,7 +71,11 @@ export default function Lab({ onLearn }: { onLearn: (slug: string) => void }) {
     setError('');
     setSaveMsg('');
     try {
-      setResult(await labApi.run(exp.id, p, seed));
+      const res = await labApi.run(exp.id, p, seed);
+      setResult(res);
+      const used = res.scenario.params ?? p;
+      // Let the assistant "see" this run (it re-creates it server-side from these settings).
+      assistantStore.setContext('the Lab', [{ experiment_id: exp.id, params: used, seed: res.seed, label: runLabel(exp, used) }]);
     } catch (e) {
       setError((e as Error).message);
     } finally {

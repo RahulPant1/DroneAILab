@@ -5,14 +5,16 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { api } from './sim';
 
 function inline(text: string): ReactNode[] {
-  return text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).map((part, i) => {
+  return text.split(/(`[^`]+`|\*\*[^*]+\*\*|\[Measured\]|\[Hypothesis\])/g).map((part, i) => {
+    if (part === '[Measured]') return <span key={i} className="tag tag-measured" title="Read directly from the run data">Measured</span>;
+    if (part === '[Hypothesis]') return <span key={i} className="tag tag-hypothesis" title="The AI's explanation or reasoning: not measured">Hypothesis</span>;
     if (part.startsWith('`') && part.endsWith('`')) return <code key={i}>{part.slice(1, -1)}</code>;
     if (part.startsWith('**') && part.endsWith('**')) return <b key={i}>{part.slice(2, -2)}</b>;
     return part;
   });
 }
 
-function render(md: string): ReactNode[] {
+export function renderMarkdown(md: string): ReactNode[] {
   const out: ReactNode[] = [];
   const lines = md.split('\n');
   let list: { ordered: boolean; items: string[] } | null = null;
@@ -65,7 +67,7 @@ export default function Learn({ slug, onClose }: { slug: string; onClose: () => 
     <div className="modal-backdrop" onClick={onClose}>
       <article className="modal" onClick={(e) => e.stopPropagation()}>
         <button className="close" onClick={onClose} aria-label="Close">✕</button>
-        {md ? render(md) : <p className="muted">Loading…</p>}
+        {md ? renderMarkdown(md) : <p className="muted">Loading…</p>}
       </article>
     </div>
   );
