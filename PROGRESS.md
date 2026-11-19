@@ -90,4 +90,41 @@ I tested everything through the Vite proxy with a WebSocket client, plus the typ
 **Known limitations:** the Vite dev server costs ~480 MB RAM; the trail keeps the last ~1500 points;
 no live plots yet (Phase 2); a sim restarts when the page reloads or the backend restarts.
 
-## Next: Phase 2 (Engineering Lab). Waiting for "go".
+## Phase 2: Engineering Lab (done 2026-11-19)
+
+**Built:**
+- Sim: `environment.py` (steady wind + seeded gusts, drag uses airspeed, hidden payload), `sensors.py`
+  (gyro/accel 250 Hz, altimeter + compass 50 Hz, GPS 10 Hz, optional gyro bias), `estimator.py`
+  (complementary filters: Mahony-style tilt, alpha-beta position/altitude). With sensors off the controller sees the truth.
+- `backend/experiments/`: 6 experiments, each with an objective, a 3-line concept, 2–4 validated sliders,
+  a headless run, plots, a rule-based summary and one-click "try next" ideas.
+- `backend/storage.py`: JSON runs + index, 100-run cap, delete-old, compare. Saves re-run on the server (genuine data).
+- API: `/api/experiments`, `/api/experiments/{id}/run`, `/api/runs` (list/save/get/delete/delete-old/compare).
+- Frontend: Lab tab, History tab (view, compare 2 runs with A solid / B dashed overlays + metric diff, delete),
+  uPlot charts with units and a "how to read" line, CSV/JSON export.
+- Lessons `docs/learn/03`–`08` (one per experiment). 24 new tests (64 total).
+
+**Acceptance:**
+| Requirement | Result |
+|---|---|
+| Too-high Kp visibly oscillates | Kp 25: 64 % overshoot, 6 target crossings |
+| Kd = 0 overshoots more than the default | 104 % vs 0.6 % |
+| Wind: measurable drift, controller recovers | 5 m/s: 0.39 m drift, back within 10 cm after 7.3 s (offset 0.5 cm) |
+| Noise: visible truth vs estimate gap | yes (altitude, x, roll plots); the estimate removes ~75 % of altimeter noise |
+| Save → reload → compare | verified via API, storage tests and end-to-end through run.sh |
+
+**Design changes found while testing (documented in code):**
+- Tilt-correction default 1.0 → 0.2: the accelerometer "lies" during accelerations, and at 1.0 the drone wandered 3 m.
+- Altitude I-term: replaced the 0.3 m integral zone with a speed gate (|vz| < 0.5 m/s), so Ki can fix a hidden payload.
+- PID I-limits are now "max output from the I-term" (independent of Ki).
+- Roll/pitch motor split is reported at its peak (averaging hid it).
+
+**Footprint:** backend 72 MB, Vite dev 533 MB, total ~605 MB RAM. Each run takes 0.3–0.7 s CPU and 47–268 KB.
+Project 379 MB on disk.
+
+**Not verified by me:** the look of the Lab/History pages and charts in a real browser.
+
+**Known limitations:** the Vite dev server is the biggest RAM user; the estimator is a teaching-grade complementary
+filter (not an EKF); live flight (Fly tab) still uses perfect sensors and no wind.
+
+## Next: Phase 3 (local LLM assistant). Waiting for "go".

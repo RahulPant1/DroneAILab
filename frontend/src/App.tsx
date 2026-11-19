@@ -1,17 +1,21 @@
-// Dashboard shell: header with status, Studio (left), 3D + controls (centre), Telemetry (right).
+// Dashboard shell: header with tabs and status. Fly = Studio + 3D + Telemetry; Lab; History.
 
 import { useEffect, useState } from 'react';
 import Controls from './Controls';
+import History from './History';
+import Lab from './Lab';
 import Learn from './Learn';
 import Scene from './Scene';
 import { api, useSimUi, useThrottledState, type Health } from './sim';
 import Studio from './Studio';
 import Telemetry from './Telemetry';
 
-const TABS: { id: string; label: string; ready: boolean; note?: string }[] = [
+type TabId = 'fly' | 'lab' | 'history' | 'assistant';
+
+const TABS: { id: TabId; label: string; ready: boolean; note?: string }[] = [
   { id: 'fly', label: 'Fly', ready: true },
-  { id: 'lab', label: 'Lab', ready: false, note: 'Phase 2' },
-  { id: 'history', label: 'History', ready: false, note: 'Phase 2' },
+  { id: 'lab', label: 'Lab', ready: true },
+  { id: 'history', label: 'History', ready: true },
   { id: 'assistant', label: 'Assistant', ready: false, note: 'Phase 3' },
 ];
 
@@ -34,11 +38,31 @@ function MessageBar() {
   return <div className={`message ${lastError ? 'error' : ''}`}>{text}</div>;
 }
 
+function initialTab(): TabId {
+  try {
+    const saved = localStorage.getItem('dronelab.tab');
+    if (saved === 'fly' || saved === 'lab' || saved === 'history') return saved;
+  } catch {
+    /* storage unavailable */
+  }
+  return 'fly';
+}
+
 export default function App() {
   const { status, config } = useSimUi();
   const health = useHealth();
+  const [tab, setTabState] = useState<TabId>(initialTab);
   const [learnSlug, setLearnSlug] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
+
+  const setTab = (t: TabId) => {
+    setTabState(t);
+    try {
+      localStorage.setItem('dronelab.tab', t);
+    } catch {
+      /* storage unavailable */
+    }
+  };
 
   return (
     <div className="app">
@@ -46,7 +70,8 @@ export default function App() {
         <h1>🚁 DroneLab</h1>
         <nav>
           {TABS.map((t) => (
-            <button key={t.id} className={`tab ${t.id === 'fly' ? 'active' : ''}`} disabled={!t.ready} title={t.note ? `Coming in ${t.note}` : ''}>
+            <button key={t.id} className={`tab ${t.id === tab ? 'active' : ''}`} disabled={!t.ready}
+              title={t.note ? `Coming in ${t.note}` : ''} onClick={() => setTab(t.id)}>
               {t.label}{t.note && <span className="soon"> · {t.note}</span>}
             </button>
           ))}
@@ -58,17 +83,23 @@ export default function App() {
           </span>
         </div>
       </header>
-      <main>
-        <Studio onLearn={setLearnSlug} />
-        <section className="viewport">
-          <div className="canvas-wrap">
-            <Scene armLength={config?.arm_length_m ?? 0.225} follow={follow} />
-            <MessageBar />
-          </div>
-          <Controls follow={follow} setFollow={setFollow} />
-        </section>
-        <Telemetry onLearn={setLearnSlug} />
-      </main>
+
+      {tab === 'fly' && (
+        <main className="fly">
+          <Studio onLearn={setLearnSlug} />
+          <section className="viewport">
+            <div className="canvas-wrap">
+              <Scene armLength={config?.arm_length_m ?? 0.225} follow={follow} />
+              <MessageBar />
+            </div>
+            <Controls follow={follow} setFollow={setFollow} />
+          </section>
+          <Telemetry onLearn={setLearnSlug} />
+        </main>
+      )}
+      {tab === 'lab' && <main className="scroll"><Lab onLearn={setLearnSlug} /></main>}
+      {tab === 'history' && <main className="scroll"><History /></main>}
+
       {learnSlug && <Learn slug={learnSlug} onClose={() => setLearnSlug(null)} />}
     </div>
   );

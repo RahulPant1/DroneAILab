@@ -16,11 +16,14 @@ from typing import Callable, Protocol
 
 import numpy as np
 
-from .config import DroneConfig, require_valid
+from .config import ConfigError, DroneConfig, require_valid
 from .control import CascadedController, Setpoint
+from .environment import EnvConfig, Wind, validate_env
+from .estimator import Estimator
 from .metrics import altitude_step_metrics, horizontal_drift_m, mean_motor_pct
 from .physics import QuadcopterPhysics, State
 from .pilot import Pilot, Sticks
+from .sensors import SensorConfig, Sensors, validate_sensors
 
 PHYSICS_DT_S = 0.002  # 500 Hz
 CONTROL_EVERY_N_STEPS = 2  # 250 Hz
@@ -36,7 +39,16 @@ TELEMETRY_CHANNELS = (
     "motor1_pct", "motor2_pct", "motor3_pct", "motor4_pct",
     "thrust_total_n",
     "alt_setpoint_m",
+    "x_setpoint_m", "y_setpoint_m",
+    "roll_setpoint_rad", "pitch_setpoint_rad", "yaw_setpoint_rad",
 )  # fmt: skip
+WIND_CHANNELS = ("wind_x_m_s", "wind_y_m_s", "wind_z_m_s")
+ESTIMATE_CHANNELS = (
+    "x_est_m", "y_est_m", "z_est_m", "vz_est_m_s",
+    "roll_est_rad", "pitch_est_rad", "yaw_est_rad",
+    "baro_m", "gps_x_m", "gps_y_m",
+)  # fmt: skip
+TELEMETRY_DECIMALS = 5
 
 
 class SimBackend(Protocol):
@@ -48,29 +60,62 @@ class SimBackend(Protocol):
 
 
 class LightweightSim:
-    """Our own simple simulator: physics + controller, with fixed time steps."""
+    """Our own simple simulator: physics + wind + sensors + estimator + controller, fixed time steps."""
 
     def __init__(self) -> None:
         self.config: DroneConfig | None = None
 
-    def reset(self, config: DroneConfig, seed: int = 0, initial_state: State | None = None) -> State:
+    def reset(
+        self,
+        config: DroneConfig,
+        seed: int = 0,
+        initial_state: State | None = None,
+        env: EnvConfig | None = None,
+        sensors: SensorConfig | None = None,
+    ) -> State:
         self.config = require_valid(config)
+        self.env = env or EnvConfig()
+        self.sensor_cfg = sensors or SensorConfig()
+        problems = validate_env(self.env) + validate_sensors(self.sensor_cfg)
+        if problems:
+            raise ConfigError(" ".join(problems))
         self.seed = seed
-        self.rng = np.random.default_rng(seed)  # used by sensors/wind from Phase 2 on
-        self.physics = QuadcopterPhysics(config)
+        # Separate random streams for wind and sensor noise, both derived from the one seed.
+        wind_seed, sensor_seed = np.random.SeedSequence(seed).spawn(2)
+
+        # The physics may carry a payload the controller doesn't know about (for the I-term lesson).
+        physics_cfg = config
+        if self.env.unmodeled_payload_kg > 0:
+            physics_cfg = config.with_changes(mass_kg=config.mass_kg + self.env.unmodeled_payload_kg)
+        self.physics = QuadcopterPhysics(physics_cfg)
         self.controller = CascadedController(config)
         self.state = initial_state.copy() if initial_state else State.at(0.0)
+        self.wind = Wind(self.env, np.random.default_rng(wind_seed), PHYSICS_DT_S) if self.env.active else None
+        if self.sensor_cfg.enabled:
+            self.sensors = Sensors(self.sensor_cfg, np.random.default_rng(sensor_seed))
+            self.estimator = Estimator(self.sensor_cfg, self.state, PHYSICS_DT_S)
+        else:
+            self.sensors = None
+            self.estimator = None
         self.step_count = 0
         self.motor_pct = np.zeros(4)
         self.rotor_energy_j = 0.0
         return self.state
 
+    @property
+    def estimate(self) -> State:
+        """What the controller believes. With sensors off ('perfect sensors') this IS the truth."""
+        return self.estimator.state if self.estimator else self.state
+
     def step(self, command: Setpoint) -> State:
         """Advance one physics step (2 ms). The controller runs on every 2nd step."""
         if self.step_count % CONTROL_EVERY_N_STEPS == 0:
-            estimate = self.state  # Phase 2 adds sensors + estimator; with no noise, estimate == truth
-            self.motor_pct = self.controller.update(estimate, command, PHYSICS_DT_S * CONTROL_EVERY_N_STEPS)
-        self.physics.step(self.state, self.motor_pct, PHYSICS_DT_S)
+            self.motor_pct = self.controller.update(self.estimate, command, PHYSICS_DT_S * CONTROL_EVERY_N_STEPS)
+        wind = self.wind.step(self.state.time_s) if self.wind else None
+        self.physics.step(self.state, self.motor_pct, PHYSICS_DT_S, wind)
+        if self.sensors:
+            readings = self.sensors.sample(self.state, self.physics.last_accel_m_s2)
+            self.estimator.update(readings, self.state.time_s)
         self.rotor_energy_j += self.physics.last_rotor_power_w * PHYSICS_DT_S
         self.step_count += 1
         return self.state
@@ -184,6 +229,8 @@ class RunResult:
     metrics: dict
     events: list[dict] = field(default_factory=list)
     summary: list[str] = field(default_factory=list)
+    try_next: list[dict] = field(default_factory=list)
+    plots: list[dict] = field(default_factory=list)  # how to draw this run (set by experiments)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -203,25 +250,34 @@ def run_headless(
     initial_state: State | None = None,
     run_type: str = "custom",
     scenario: dict | None = None,
+    env: EnvConfig | None = None,
+    sensors: SensorConfig | None = None,
 ) -> RunResult:
     """Run a whole flight as fast as possible and return a RunResult.
 
     `setpoint` is either fixed, or a function of time (seconds) returning a Setpoint.
+    Telemetry is recorded at 50 Hz; wind and estimate channels are added when those are on.
     """
     if not 0 < duration_s <= MAX_DURATION_S:
         raise ValueError(f"duration_s must be between 0 and {MAX_DURATION_S} s, got {duration_s}.")
     sim = LightweightSim()
-    state = sim.reset(config, seed, initial_state)
+    state = sim.reset(config, seed, initial_state, env, sensors)
     setpoint_at = setpoint if callable(setpoint) else (lambda _t: setpoint)
 
-    tel: dict[str, list[float]] = {name: [] for name in TELEMETRY_CHANNELS}
+    channels = list(TELEMETRY_CHANNELS)
+    if sim.wind:
+        channels += WIND_CHANNELS
+    if sim.estimator:
+        channels += ESTIMATE_CHANNELS
+    tel: dict[str, list[float]] = {name: [] for name in channels}
     events: list[dict] = []
     was_on_ground = state.on_ground
     saturated_logged = False
 
     def record(sp: Setpoint) -> None:
         roll, pitch, yaw = state.euler_rad()
-        values = (
+        roll_sp, pitch_sp = sim.controller.last_tilt_sp_rad
+        values = [
             state.time_s,
             *state.pos_m,
             *state.vel_m_s,
@@ -229,8 +285,16 @@ def run_headless(
             *sim.motor_pct,
             float(sim.physics.last_thrusts_n.sum()),
             sp.alt_m,
-        )  # fmt: skip
-        for name, value in zip(TELEMETRY_CHANNELS, values):
+            sp.x_m, sp.y_m,
+            roll_sp, pitch_sp, sp.yaw_rad,
+        ]  # fmt: skip
+        if sim.wind:
+            values += list(sim.wind.current)
+        if sim.estimator:
+            est = sim.estimator.state
+            readings = sim.sensors.readings
+            values += [*est.pos_m, est.vel_m_s[2], *est.euler_rad(), readings.baro_m, *readings.gps_xy_m]
+        for name, value in zip(channels, values):
             tel[name].append(float(value))
 
     n_steps = int(round(duration_s / PHYSICS_DT_S))
@@ -256,6 +320,11 @@ def run_headless(
         if i % TELEMETRY_EVERY_N_STEPS == 0:
             record(sp)
 
+    # Round to 5 decimals (10 µm, 0.0006°): plenty for plots, and keeps saved runs small.
+    tel = {name: [round(v, TELEMETRY_DECIMALS) for v in values] for name, values in tel.items()}
+    for e in events:
+        e["t_s"] = round(e["t_s"], 3)
+
     t = np.asarray(tel["t_s"])
     motors = np.column_stack([tel[f"motor{k}_pct"] for k in range(1, 5)]).mean(axis=1)
     metrics = {
@@ -270,7 +339,7 @@ def run_headless(
     return RunResult(
         run_type=run_type,
         config=config.to_dict(),
-        env={"wind_m_s": [0.0, 0.0, 0.0], "sensor_noise": False},
+        env={"wind": sim.env.to_dict(), "sensors": sim.sensor_cfg.to_dict()},
         seed=seed,
         scenario=scenario or {"duration_s": duration_s},
         telemetry=tel,

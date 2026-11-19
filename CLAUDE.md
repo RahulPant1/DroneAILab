@@ -3,7 +3,7 @@
 **Source of truth:** `docs/PRD.md`. Read it fully before any work.
 
 ## Current phase
-Phase 1b done (browser UI, position control, run.sh, 40 tests). Next: Phase 2 (Engineering Lab), waiting for the user's "go". Update this line at every phase change.
+Phase 2 done (Engineering Lab: 6 experiments, sensors/estimator, wind, saved runs, compare; 64 tests). Next: Phase 3 (local LLM assistant), waiting for the user's "go". Update this line at every phase change.
 
 ## Machine facts (from Phase 0)
 Project at `~/DroneAILab`. Ubuntu 22.04 on WSL2 (mirrored networking). WSL has 9 GB RAM, **swap = 0**, 4 CPUs. Treat RAM as tight.
@@ -30,5 +30,7 @@ plain-English docstrings on physics/control functions.
 - Run app: `./run.sh` → http://localhost:5174 (Ctrl+C stops everything)
 - Tests: `.venv/bin/pytest -q`
 - Frontend check: `cd frontend && npm run build` (tsc + vite build). Node needs NVM loaded in non-interactive shells: `. ~/.nvm/nvm.sh`
+- Experiments live in `backend/experiments/` (one module each, registered in `__init__.py`); a run's plots/summary/try-next travel inside its RunResult. Saved runs: `data/experiments/` (re-run server-side on save).
+- Sensors off (`SensorConfig.enabled=False`) = controller sees truth; keep it that way for the Phase 1 tests.
 - Avoid drei `<Html>` (React 19 unmount warnings) and drei `Text`/`Environment` (fetch from CDN; the app must work offline).
 - Headless: `.venv/bin/python -m backend.cli hover --alt 2`

@@ -6,6 +6,14 @@
   GET  /api/learn/{slug}     -> a docs/learn/ page as Markdown text
   WS   /ws/sim               -> live simulation (client sends commands, server streams state ~30 Hz)
 
+  GET  /api/experiments                -> the six Lab experiments (sliders, concept, metrics)
+  POST /api/experiments/{id}/run       -> run headless, returns a RunResult
+  GET  /api/runs                       -> saved runs (newest first)
+  POST /api/runs                       -> save {experiment_id, params, seed, label} (re-runs on the server)
+  GET  /api/runs/compare?a=&b=         -> two saved runs + metric differences
+  GET  /api/runs/{id}, DELETE /api/runs/{id}
+  POST /api/runs/delete-old            -> {keep_newest: N}
+
 The LLM is never loaded here: the health check only asks Ollama for its model LIST.
 Run with: .venv/bin/uvicorn backend.api:app --host 127.0.0.1 --port 8001  (or ./run.sh)
 """
@@ -15,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -22,8 +31,10 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
+from .experiments import EXPERIMENTS, ExperimentError, get_experiment
 from .sim.config import GAIN_LIMITS, LIMITS, PRESETS, ConfigError, DroneConfig, get_preset, validate_config
 from .sim.runner import RealtimeSim
+from .storage import RunStore, StorageError, compare
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LEARN_DIR = PROJECT_ROOT / "docs" / "learn"
@@ -34,6 +45,8 @@ HEALTH_CACHE_S = 10.0
 
 app = FastAPI(title="DroneLab", docs_url="/api/docs", openapi_url="/api/openapi.json")
 _health_cache: dict = {"at": -1e9, "value": None}
+store = RunStore()
+_heavy_work = threading.Lock()  # one headless run at a time (laptop-safety rule)
 
 
 def settings() -> dict:
@@ -99,6 +112,83 @@ def learn(slug: str) -> dict:
     if not path.is_file():
         raise HTTPException(404, "No such page.")
     return {"slug": slug, "markdown": path.read_text(encoding="utf-8")}
+
+
+# ---- Lab: experiments and saved runs ----
+
+
+def _run_experiment(experiment_id: str, params, seed) -> dict:
+    exp = get_experiment(experiment_id)
+    if params is not None and not isinstance(params, dict):
+        raise ExperimentError("params must be an object.")
+    if not _heavy_work.acquire(timeout=10):
+        raise HTTPException(429, "Another run is still going. Try again in a moment.")
+    try:
+        return exp.run(params, seed if seed is not None else 0)
+    finally:
+        _heavy_work.release()
+
+
+@app.get("/api/experiments")
+def experiments() -> list[dict]:
+    return [e.to_dict() for e in EXPERIMENTS.values()]
+
+
+@app.post("/api/experiments/{experiment_id}/run")
+def run_experiment(experiment_id: str, body: dict | None = None) -> dict:
+    body = body or {}
+    try:
+        return _run_experiment(experiment_id, body.get("params"), body.get("seed")).to_dict()
+    except ExperimentError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@app.get("/api/runs")
+def list_runs() -> list[dict]:
+    return store.list()
+
+
+@app.post("/api/runs")
+def save_run(body: dict) -> dict:
+    """Save a run. The server re-runs it from (experiment, params, seed), so saved data is always genuine."""
+    try:
+        result = _run_experiment(str(body.get("experiment_id")), body.get("params"), body.get("seed"))
+        return store.save(result, str(body.get("label") or ""))
+    except (ExperimentError, StorageError) as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@app.get("/api/runs/compare")
+def compare_runs(a: str, b: str) -> dict:
+    try:
+        return compare(store.get(a), store.get(b))
+    except StorageError as exc:
+        raise HTTPException(404, str(exc)) from None
+
+
+@app.post("/api/runs/delete-old")
+def delete_old_runs(body: dict) -> dict:
+    try:
+        return {"deleted": store.delete_old(int(body.get("keep_newest", 20)))}
+    except (StorageError, ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@app.get("/api/runs/{run_id}")
+def get_run(run_id: str) -> dict:
+    try:
+        return store.get(run_id)
+    except StorageError as exc:
+        raise HTTPException(404, str(exc)) from None
+
+
+@app.delete("/api/runs/{run_id}")
+def delete_run(run_id: str) -> dict:
+    try:
+        store.delete(run_id)
+        return {"deleted": run_id}
+    except StorageError as exc:
+        raise HTTPException(404, str(exc)) from None
 
 
 def handle_message(session: RealtimeSim, msg) -> dict | None:

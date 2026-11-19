@@ -18,6 +18,11 @@ cp .env.example .env
 ```
 Click **Take off**, then hold W/A/S/D (move), R/F (up/down), Q/E (turn).
 
+**Lab** tab: six guided experiments (thrust, mass, roll/pitch/yaw, PID tuning, wind, sensor noise),
+each with sliders, plots, a "what happened" explanation and "try next" ideas. Save runs, then use the
+**History** tab to compare two of them on overlaid plots, or export as CSV/JSON.
+Saved runs live in `data/experiments/` (max 100; History has "Delete old runs").
+
 ## Terminal tools
 ```bash
 .venv/bin/python -m backend.cli hover --alt 2     # take off and hover at 2 m
