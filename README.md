@@ -9,9 +9,16 @@ cd ~/DroneAILab
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r backend/requirements.txt
 cp .env.example .env
+(cd frontend && npm install)
 ```
 
-## Use (Phase 1a: terminal only)
+## Fly in the browser
+```bash
+./run.sh          # then open http://localhost:5174 in Windows. Ctrl+C stops everything.
+```
+Click **Take off**, then hold W/A/S/D (move), R/F (up/down), Q/E (turn).
+
+## Terminal tools
 ```bash
 .venv/bin/python -m backend.cli hover --alt 2     # take off and hover at 2 m
 .venv/bin/python -m backend.cli presets           # list drone presets

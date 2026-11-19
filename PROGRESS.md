@@ -53,4 +53,41 @@ model tag exists; `ollama ps` is empty (no model loaded).
 **Known limitations:** no position control yet (Phase 1b); simple ground contact (no tipping, drone is
 levelled on touchdown); a 120 s run's JSON is ~1.1 MB. Floats should be rounded before saving runs in Phase 2.
 
-## Next: Phase 1b (fly it in the browser). Waiting for "go".
+## Phase 1b: Fly it in the browser (done 2026-11-19)
+
+**Built:**
+- Backend: position control (`control.py`), `pilot.py` (take-off/hover/land modes + keyboard sticks),
+  `RealtimeSim` (wall-clock paced, pause, 30 Hz snapshots) in `runner.py`, `api.py` (FastAPI + `/ws/sim`).
+- Frontend (React 19 + Vite 8 + TS 7 + r3f/drei, hand-written): header with Sim/AI status, Drone Studio
+  (presets, 5 key params with plain-English help, live T/W, Advanced = more physics + all PID gains),
+  a real-scale 3D drone, ENU axes, grid, trail, target marker, ground shadow, camera follow, on-demand rendering
+  (~30 fps, none while the tab is hidden), telemetry (position/target/velocity, roll/pitch/yaw in °, motor bars),
+  buttons, WASD/RF/QE keys, "fly to x/y/alt", and a lesson viewer.
+- `run.sh`: reads `.env` safely, picks free ports, binds 127.0.0.1, and Ctrl+C stops everything it started.
+- Lesson `docs/learn/02-roll-pitch-yaw.md`. 17 new tests (40 total).
+
+**Acceptance:**
+| Requirement | Result |
+|---|---|
+| First flight within 2 clicks | 1 click (Take off); the sim auto-connects on page load |
+| UI smooth | renders only on new data (~30 fps); telemetry text at 10 Hz |
+| Backend < 500 MB RAM | 64 MB |
+| Total app < 1.5 GB | ~545 MB (Vite dev server ~480 MB of that) |
+| Works with Ollama stopped | sim never calls Ollama; health shows "AI offline" (tested with an unreachable URL) |
+| Ctrl+C leaves no processes | verified, both during start-up and after |
+
+**Fixes found while testing:**
+- Heavy preset crashed on a 90° turn: yaw now gets only leftover thrust, and tilt torque requests are capped
+  to the motors' real authority.
+- `run.sh` hung for up to 20 s if Ctrl+C came during start-up: the cleanup handler now exits.
+- React 19 unmount warnings from drei `<Html>` labels: replaced with canvas sprites.
+
+**Footprint:** project 347 MB on disk (node_modules 241 MB, .venv 83 MB).
+
+**Not verified by me:** how the page looks and feels in a real browser (I had no browser to look at it).
+I tested everything through the Vite proxy with a WebSocket client, plus the type-check and build.
+
+**Known limitations:** the Vite dev server costs ~480 MB RAM; the trail keeps the last ~1500 points;
+no live plots yet (Phase 2); a sim restarts when the page reloads or the backend restarts.
+
+## Next: Phase 2 (Engineering Lab). Waiting for "go".

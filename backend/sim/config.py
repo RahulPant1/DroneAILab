@@ -42,6 +42,9 @@ class ControlGains:
     rate_kd: float = 0.0
     yaw_rate_kp: float = 8.0
     yaw_rate_ki: float = 0.5
+    pos_kp: float = 1.0  # (m/s) of wanted speed per m of position error
+    vel_kp: float = 2.0  # (m/s^2) of wanted horizontal acceleration per (m/s) of speed error
+    vel_ki: float = 0.5  # removes steady drift (e.g. from wind, in Phase 2)
 
 
 @dataclass(frozen=True)
@@ -167,6 +170,9 @@ GAIN_LIMITS: dict[str, tuple[float, float]] = {
     "rate_kd": (0.0, 2.0),
     "yaw_rate_kp": (0.0, 40.0),
     "yaw_rate_ki": (0.0, 10.0),
+    "pos_kp": (0.0, 5.0),
+    "vel_kp": (0.0, 10.0),
+    "vel_ki": (0.0, 5.0),
 }
 
 

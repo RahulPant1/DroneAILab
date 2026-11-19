@@ -3,8 +3,9 @@
 `LightweightSim` is our only simulator. It follows the small `SimBackend` interface, so a
 different simulator (e.g. PX4) could be plugged in later without changing the callers.
 
-Headless mode (this file) runs as fast as the CPU allows; it's for experiments and tests.
-Real-time mode (paced to the wall clock, for the 3D view) arrives in Phase 1b.
+Two ways to run it:
+  headless  (`run_headless`) : as fast as the CPU allows, for experiments and tests;
+  real-time (`RealtimeSim`)  : paced to the wall clock, driven by the WebSocket for the 3D view.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from .config import DroneConfig, require_valid
 from .control import CascadedController, Setpoint
 from .metrics import altitude_step_metrics, horizontal_drift_m, mean_motor_pct
 from .physics import QuadcopterPhysics, State
+from .pilot import Pilot, Sticks
 
 PHYSICS_DT_S = 0.002  # 500 Hz
 CONTROL_EVERY_N_STEPS = 2  # 250 Hz
@@ -75,6 +77,95 @@ class LightweightSim:
 
     def get_state(self) -> State:
         return self.state
+
+
+MAX_CATCH_UP_S = 0.1  # if the server stalls, skip ahead rather than racing to catch up
+
+
+class RealtimeSim:
+    """Runs the simulator in step with the real clock, controlled by a Pilot.
+
+    The WebSocket loop calls `advance(elapsed_wall_time)` about 30 times a second;
+    we then do however many 2 ms physics steps fit into that time.
+    """
+
+    def __init__(self, config: DroneConfig, seed: int = 0):
+        self.sim = LightweightSim()
+        self.reset(config, seed)
+
+    def reset(self, config: DroneConfig | None = None, seed: int | None = None) -> None:
+        self.config = config or self.config
+        self.seed = self.seed if seed is None else seed
+        self.sim.reset(self.config, self.seed)
+        self.pilot = Pilot()
+        self.paused = False
+        self._time_debt_s = 0.0
+
+    @property
+    def state(self) -> State:
+        return self.sim.get_state()
+
+    def advance(self, wall_dt_s: float) -> int:
+        """Simulate `wall_dt_s` seconds of real time (nothing happens while paused)."""
+        if self.paused:
+            return 0
+        self._time_debt_s += min(max(wall_dt_s, 0.0), MAX_CATCH_UP_S)
+        n_steps = int(self._time_debt_s / PHYSICS_DT_S)
+        self._time_debt_s -= n_steps * PHYSICS_DT_S
+        for _ in range(n_steps):
+            self.sim.step(self.pilot.update(self.state, PHYSICS_DT_S))
+        return n_steps
+
+    def command(self, cmd: str, **args) -> str:
+        """Handle a button press: takeoff | land | hover | pause | resume | reset | target | sticks."""
+        s = self.state
+        if cmd == "takeoff":
+            return self.pilot.takeoff(s, args.get("alt_m"))
+        if cmd == "land":
+            return self.pilot.land(s)
+        if cmd == "hover":
+            return self.pilot.hover(s)
+        if cmd == "pause":
+            self.paused = True
+            self.pilot.set_sticks(Sticks())
+            return "Paused."
+        if cmd in ("resume", "start"):
+            self.paused = False
+            return "Running."
+        if cmd == "target":
+            return self.pilot.set_target(args.get("x_m"), args.get("y_m"), args.get("alt_m"), args.get("yaw_rad"))
+        if cmd == "sticks":
+            self.pilot.set_sticks(Sticks(**{k: float(args.get(k, 0.0)) for k in ("forward", "left", "up", "yaw")}))
+            return ""
+        raise ValueError(f"Unknown command '{cmd}'.")
+
+    def snapshot(self) -> dict:
+        """A compact, JSON-friendly picture of 'right now' for the UI (SI units, radians)."""
+        s = self.state
+        sp = self.pilot.sp
+        r = lambda v, n=4: [round(float(x), n) for x in v]  # noqa: E731
+        return {
+            "type": "state",
+            "t_s": round(s.time_s, 3),
+            "mode": self.pilot.mode,
+            "paused": self.paused,
+            "armed": sp.armed,
+            "on_ground": s.on_ground,
+            "pos_m": r(s.pos_m),
+            "vel_m_s": r(s.vel_m_s),
+            "quat": r(s.quat, 5),
+            "euler_rad": r(s.euler_rad()),
+            "rate_rad_s": r(s.rate_rad_s),
+            "motor_pct": r(self.sim.motor_pct, 1),
+            "thrust_total_n": round(float(self.sim.physics.last_thrusts_n.sum()), 3),
+            "setpoint": {
+                "x_m": round(sp.x_m, 3),
+                "y_m": round(sp.y_m, 3),
+                "alt_m": round(sp.alt_m, 3),
+                "yaw_rad": round(sp.yaw_rad, 4),
+            },
+            "message": self.pilot.message,
+        }
 
 
 @dataclass
