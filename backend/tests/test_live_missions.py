@@ -230,3 +230,31 @@ def test_very_noisy_sensors_can_fool_the_autopilot_into_a_box():
     outcomes = [fly_noisy("slalom", 3.0, seed)[-1] for seed in range(5)]
     assert any("Hit an obstacle" in o for o in outcomes)
     assert all("Hit an obstacle" not in fly_noisy("slalom", 0.0, seed)[-1] for seed in range(2))
+
+
+# ---- the buttons (take-off / hover / fly-to / land) also act on the estimate ----
+
+
+def test_buttons_use_the_estimate_and_still_land_safely_with_noise():
+    import numpy as np
+
+    rt = MissionSim(BASIC, seed=0)
+    rt.command("sensors", enabled=True, noise_scale=3.0)
+    for _ in range(60):  # on the ground for 3 s: the estimate drifts a little
+        rt.advance(0.05)
+    est = rt.sim.estimate.pos_m.copy()
+    rt.command("takeoff", alt_m=2.0)
+    assert (rt.pilot.sp.x_m, rt.pilot.sp.y_m) == (float(est[0]), float(est[1]))  # target = where it THINKS it is
+    for _ in range(100):
+        rt.advance(0.05)
+    assert rt.pilot.mode == "hover"
+    rt.command("target", x_m=4.0, y_m=3.0, alt_m=2.0)
+    for _ in range(200):
+        rt.advance(0.05)
+    assert 0.05 < np.hypot(rt.state.pos_m[0] - 4.0, rt.state.pos_m[1] - 3.0) < 1.5  # off by the estimate error
+    rt.command("land")
+    for _ in range(400):
+        rt.advance(0.05)
+        if rt.pilot.mode == "idle":
+            break
+    assert rt.pilot.mode == "idle" and rt.state.on_ground  # disarmed on real ground contact, not mid-air

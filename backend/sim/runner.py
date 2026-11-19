@@ -178,7 +178,7 @@ class RealtimeSim:
 
     def next_setpoint(self, dt_s: float) -> Setpoint:
         """What the controller should aim for during the next physics step (the pilot decides)."""
-        return self.pilot.update(self.state, dt_s)
+        return self.pilot.update(self.sim.estimate, dt_s, self.state)  # decides on the estimate
 
     @property
     def state(self) -> State:
@@ -197,7 +197,7 @@ class RealtimeSim:
 
     def command(self, cmd: str, **args) -> str:
         """Handle a button press: takeoff | land | hover | pause | resume | reset | target | sticks."""
-        s = self.state
+        s = self.sim.estimate  # buttons act on where the drone BELIEVES it is
         if cmd == "takeoff":
             return self.pilot.takeoff(s, args.get("alt_m"))
         if cmd == "land":

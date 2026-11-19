@@ -110,7 +110,7 @@ class MissionSim(RealtimeSim):
         self.pilot = Pilot()
         if phase == "stuck":
             self.pilot.mode = "hover"  # Pilot.hover() needs a flying mode to start from
-            self.pilot.hover(state)
+            self.pilot.hover(self.sim.estimate)
             self.pilot.message = "Stuck: the potential field can't find a way. You have the controls."
         elif phase == "crashed":
             self.pilot.message = "Crashed into an obstacle. Press Reset or Fly mission to try again."
@@ -149,7 +149,7 @@ class MissionSim(RealtimeSim):
             if self.follower.phase in ("landed", "crashed", "stuck"):
                 self._end_mission(s)
             return sp
-        sp = self.pilot.update(s, dt_s)
+        sp = self.pilot.update(self.sim.estimate, dt_s, s)  # decides on the estimate; ground contact from truth
         if self.mission and sp.armed and clearance_m(self.mission.obstacles, *(float(v) for v in s.pos_m)) < 0:
             sp.armed = False
             self.pilot.mode = "idle"

@@ -8,6 +8,9 @@ Modes:
 
 The pilot never touches the motors directly. It only says WHERE the drone should be,
 and the controller (control.py) works out how to get there.
+
+What it can see: like the controller, it works from the drone's ESTIMATE of itself (the truth when sensors are
+perfect). Only "am I on the ground?" comes from the true state, because our estimator doesn't track ground contact.
 """
 
 from __future__ import annotations
@@ -105,8 +108,10 @@ class Pilot:
 
     # ---- Called every physics step ----
 
-    def update(self, state: State, dt_s: float) -> Setpoint:
-        """Advance the mode logic by dt and return the setpoint for the controller."""
+    def update(self, state: State, dt_s: float, truth: State | None = None) -> Setpoint:
+        """Advance the mode logic by dt and return the setpoint for the controller.
+        `state` = what the drone believes (the estimate); `truth` = the real state, used only for ground contact."""
+        truth = truth or state
         if self.mode == "takeoff" and abs(state.pos_m[2] - self.sp.alt_m) < TAKEOFF_REACHED_M:
             self.mode = "hover"
             self._say(f"Hovering at {self.sp.alt_m:.1f} m. Use W/A/S/D, R/F, Q/E to move.")
@@ -116,7 +121,7 @@ class Pilot:
         elif self.mode == "land":
             floor = -LAND_TARGET_BELOW_GROUND_M
             self.sp.alt_m = max(floor, self.sp.alt_m - LAND_SPEED_M_S * dt_s)
-            self._ground_time_s = self._ground_time_s + dt_s if state.on_ground else 0.0
+            self._ground_time_s = self._ground_time_s + dt_s if truth.on_ground else 0.0
             if self._ground_time_s >= DISARM_AFTER_GROUND_S:
                 self.mode = "idle"
                 self.sp.armed = False

@@ -32,3 +32,6 @@ to 3× and watch the gap grow. Then fly a mission through the slalom. The missio
 waypoint 1" while really being 0.6 m away (the message tells you both). At 1x the safety margin holds; at 3x the
 estimate is often wrong by more than the margin, and the drone can clip a box. That's why real drones with poor
 GPS fly slower and with wider margins.
+
+Everything that flies the drone (the controller, the buttons and the mission autopilot) only knows the estimate.
+Try **Fly to** x 4, y 3 at 3x noise: it stops where it *thinks* the point is, often half a metre or more away.
