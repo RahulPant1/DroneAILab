@@ -1,7 +1,7 @@
 // Flight buttons, keyboard nudges, a "fly to" box, and the mission bar (course + autopilot).
 
 import { useEffect, useState } from 'react';
-import { api, sim, useSimUi, useThrottledState, type SimState } from './sim';
+import { api, compassName, sim, useSimUi, useThrottledState, type SimState } from './sim';
 
 const MOVE_KEYS: Record<string, [keyof Sticks, number]> = {
   w: ['forward', 1], s: ['forward', -1],
@@ -98,6 +98,7 @@ export default function Controls({ follow, setFollow }: { follow: boolean; setFo
         <label className="inline"><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> camera follows</label>
       </div>
       <MissionBar s={s} offline={offline} />
+      <WindBar status={status} />
     </div>
   );
 }
@@ -163,6 +164,44 @@ function MissionBar({ s, offline }: { s: SimState | null; offline: boolean }) {
           rings = waypoints at {course.cruise_alt_m} m (green done, yellow next) · yellow dashes = planned route. Touching a box stops the motors.
         </p>
       )}
+    </div>
+  );
+}
+
+/** Live wind: changes apply at once, mid-flight, and stay through Reset and new missions. */
+function WindBar({ status }: { status: string }) {
+  const [wind, setWind] = useState({ speed: 0, dir: 0, gust: 0 });
+  const send = (w: typeof wind) => sim.send('wind', { speed_m_s: w.speed, direction_deg: w.dir, gust_m_s: w.gust });
+  const change = (patch: Partial<typeof wind>) => {
+    const w = { ...wind, ...patch };
+    setWind(w);
+    send(w);
+  };
+  // A fresh connection starts in calm air: send our settings again if it reconnects.
+  useEffect(() => {
+    if (status === 'open' && (wind.speed > 0 || wind.gust > 0)) send(wind);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+  const off = status !== 'open';
+
+  return (
+    <div className="row small wind-bar">
+      <span title="Wind pushes on the drone through drag. Watch the arrow at the drone and the drift in Telemetry.">🌬 Wind</span>
+      <label className="inline" title="Steady wind speed (0–12 m/s). 5 m/s is a breeze, 10 m/s is strong for a small drone.">
+        <input type="range" min={0} max={12} step={0.5} value={wind.speed} disabled={off} onChange={(e) => change({ speed: Number(e.target.value) })} />
+        <b className="wind-num">{wind.speed.toFixed(1)}</b> m/s
+      </label>
+      <label className="inline" title="Where the wind blows TOWARD (0° = east, 90° = north)">
+        toward
+        <input type="range" min={0} max={345} step={15} value={wind.dir} disabled={off} onChange={(e) => change({ dir: Number(e.target.value) })} />
+        <b className="wind-num">{wind.dir}°</b> {compassName(wind.dir)}
+      </label>
+      <label className="inline" title="Typical size of random gusts on top of the steady wind (0–4 m/s)">
+        gusts ±
+        <input type="range" min={0} max={4} step={0.25} value={wind.gust} disabled={off} onChange={(e) => change({ gust: Number(e.target.value) })} />
+        <b className="wind-num">{wind.gust.toFixed(2)}</b> m/s
+      </label>
+      <button disabled={off || (wind.speed === 0 && wind.gust === 0)} onClick={() => change({ speed: 0, gust: 0 })}>Calm</button>
     </div>
   );
 }

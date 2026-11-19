@@ -24,6 +24,8 @@ Even a perfect plan isn't followed perfectly:
 In the **Fly** tab, pick a **Course** under the 3D view. Press **▶ Fly mission** to watch the autopilot fly it
 live, or fly it yourself with the keyboard and see how hard it is to keep a safe gap from the boxes.
 Try the box canyon with the potential field: you'll see the drone stop in the trap, then you get the controls.
+Then turn up the 🌬 **Wind** (toward north) and fly the slalom with A*: watch the drone lean into the wind and
+pass closer to the boxes. At about 10 m/s, the safety margin is nearly used up.
 
 ## Real drones
 PX4 and ArduPilot fly waypoint missions exactly like this (take-off, waypoints, land). Real obstacle avoidance adds sensors (cameras, lidar) to *discover* obstacles. Here the map is known in advance.

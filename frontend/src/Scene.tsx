@@ -186,6 +186,24 @@ function FollowCamera({ enabled }: { enabled: boolean }) {
   return null;
 }
 
+/** An arrow above the drone showing the wind right now: points where the air is going, longer = stronger. */
+function WindArrow() {
+  const arrow = useMemo(() => new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, '#e0f7ff', 0.18, 0.1), []);
+  const dir = useMemo(() => new THREE.Vector3(), []);
+  useEffect(() => () => arrow.dispose(), [arrow]);
+  useFrame(() => {
+    const s = sim.latest;
+    const w = s?.wind_m_s;
+    const speed = w ? Math.hypot(w[0], w[1], w[2]) : 0;
+    arrow.visible = !!s && speed > 0.05;
+    if (!s || !w || !arrow.visible) return;
+    arrow.position.set(s.pos_m[0], s.pos_m[1], s.pos_m[2] + 0.5);
+    arrow.setDirection(dir.set(w[0], w[1], w[2]).normalize());
+    arrow.setLength(0.25 + 0.12 * speed, 0.18, 0.1); // 6 m/s is about 1 m long
+  });
+  return <primitive object={arrow} />;
+}
+
 /** The loaded mission course (if any), and a camera move to show all of it whenever a different course loads. */
 function CourseLayer() {
   const { course } = useSimUi();
@@ -236,6 +254,7 @@ export default function Scene({ armLength, follow }: { armLength: number; follow
       <group rotation={ENU_TO_THREE}>
         <Axes />
         <CourseLayer />
+        <WindArrow />
         <Trail />
         <Markers armLength={armLength} />
         <Drone armLength={armLength} />

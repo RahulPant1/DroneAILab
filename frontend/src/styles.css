@@ -241,3 +241,5 @@ table.diff td:nth-child(3) { color: var(--muted); text-align: center; }
 .mission-bar { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; }
 .mission-status { color: var(--accent); font-weight: 600; }
 .course-legend { margin: 4px 0 0; }
+.wind-bar input[type=range] { width: 90px; vertical-align: middle; }
+.wind-num { display: inline-block; min-width: 2.6em; text-align: right; }

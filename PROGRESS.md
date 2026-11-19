@@ -125,7 +125,7 @@ Project 379 MB on disk.
 **Not verified by me:** the look of the Lab/History pages and charts in a real browser.
 
 **Known limitations:** the Vite dev server is the biggest RAM user; the estimator is a teaching-grade complementary
-filter (not an EKF); live flight (Fly tab) still uses perfect sensors and no wind.
+filter (not an EKF); live flight (Fly tab) uses perfect sensors (wind was added to it later).
 
 ## Phase 3: Local LLM assistant (done 2026-11-19)
 
@@ -206,5 +206,13 @@ ones); the obstacles are known in advance (no sensing).
   (green done / yellow next), dashed planned route, camera framed on the course when it loads.
 - Live outcomes match the Lab matrix for all 12 scenario/planner pairs (tests). A mission costs ~2.5 % of one core.
 - Tests: 137 pass (+17 in `test_live_missions.py`). **Not verified by me:** the look in a real browser.
+
+## Extra: wind in the live view (done 2026-11-19)
+- WebSocket `{"cmd": "wind", "speed_m_s", "direction_deg", "gust_m_s"}` applies at once, mid-flight
+  (`LightweightSim.set_env`); the wind is kept through Reset and new missions. State frames carry `wind_m_s`.
+- UI: 🌬 Wind sliders (0–12 m/s, direction in 15° steps, gusts 0–4 m/s, Calm button), a wind arrow above the
+  drone (live, including gusts), and a wind line in Telemetry. Settings are re-sent if the connection drops.
+- Live check: slalom with A*, crosswind north: min gap 0.38 m (calm), 0.25 m (6 m/s, same as the Lab), 0.09 m (10 m/s).
+- Tests: 140 pass (+3). **Not verified by me:** the look in a real browser.
 
 ## Next: Roadmap items (PX4/Gazebo, ROS 2, vision, …) only with explicit approval.

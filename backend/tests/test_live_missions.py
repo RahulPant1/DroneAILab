@@ -104,3 +104,49 @@ def test_websocket_loads_a_course_and_flies_a_mission():
         assert state["mode"] == "mission" and state["mission"]["waypoints_total"] == 1
         ws.send_json({"cmd": "mission", "planner": "nope"})
         assert any(m["type"] == "error" for m in (ws.receive_json() for _ in range(10)))
+
+
+# ---- wind in the live view ----
+
+
+def test_live_wind_pushes_the_drone_and_the_controller_pulls_it_back():
+    rt = MissionSim(BASIC)
+    rt.command("takeoff", alt_m=2.0)
+    for _ in range(100):
+        rt.advance(0.05)
+    assert "6.0 m/s" in rt.command("wind", speed_m_s=6.0, direction_deg=0.0, gust_m_s=0.0)
+    xs = []
+    for _ in range(200):
+        rt.advance(0.05)
+        xs.append(float(rt.state.pos_m[0]))
+    assert max(xs) > 0.2  # blown downwind (east) at first...
+    assert abs(xs[-1]) < 0.15  # ...then the speed I-term learns the push and brings it back
+    assert rt.snapshot()["wind_m_s"][0] == pytest.approx(6.0)
+
+
+def test_wind_survives_reset_and_calm_turns_it_off():
+    rt = MissionSim(BASIC)
+    rt.command("wind", speed_m_s=4.0, direction_deg=90.0, gust_m_s=1.0)
+    rt.reset()
+    assert rt.env.wind_speed_m_s == 4.0 and rt.sim.wind is not None
+    assert "calm" in rt.command("wind", speed_m_s=0, direction_deg=0, gust_m_s=0)
+    assert rt.sim.wind is None and rt.snapshot()["wind_m_s"] == [0.0, 0.0, 0.0]
+    with pytest.raises(ValueError, match="wind_speed_m_s"):
+        rt.command("wind", speed_m_s=99)
+
+
+def test_crosswind_shrinks_the_gap_in_a_live_mission_like_in_the_lab():
+    def min_gap(wind):
+        rt = MissionSim(BASIC)
+        rt.command("wind", speed_m_s=wind, direction_deg=90.0, gust_m_s=0.0)
+        rt.load_course("slalom")
+        rt.start_mission("astar")
+        gap = 9.0
+        while rt.follower:
+            rt.advance(0.05)
+            if rt.state.pos_m[2] > 0.05:
+                gap = min(gap, clearance_m(rt.mission.obstacles, *rt.state.pos_m))
+        return gap
+
+    calm, windy = min_gap(0.0), min_gap(6.0)
+    assert windy < calm - 0.08 and windy > 0  # closer to the boxes, but A*'s margin still saves it

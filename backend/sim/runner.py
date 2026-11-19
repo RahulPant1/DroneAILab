@@ -102,6 +102,15 @@ class LightweightSim:
         self.rotor_energy_j = 0.0
         return self.state
 
+    def set_env(self, env: EnvConfig) -> None:
+        """Change the wind without restarting (live view). Gusts restart from calm, with fresh randomness."""
+        problems = validate_env(env)
+        if problems:
+            raise ConfigError(" ".join(problems))
+        self.env = env
+        rng = np.random.default_rng([self.seed, self.step_count])
+        self.wind = Wind(env, rng, PHYSICS_DT_S) if env.active else None
+
     @property
     def estimate(self) -> State:
         """What the controller believes. With sensors off ('perfect sensors') this IS the truth."""
@@ -136,12 +145,13 @@ class RealtimeSim:
 
     def __init__(self, config: DroneConfig, seed: int = 0):
         self.sim = LightweightSim()
+        self.env = EnvConfig()  # wind; it stays the same across resets until changed
         self.reset(config, seed)
 
     def reset(self, config: DroneConfig | None = None, seed: int | None = None) -> None:
         self.config = config or self.config
         self.seed = self.seed if seed is None else seed
-        self.sim.reset(self.config, self.seed, self.start_state())
+        self.sim.reset(self.config, self.seed, self.start_state(), env=self.env)
         self.pilot = Pilot()
         self.paused = False
         self._time_debt_s = 0.0
@@ -188,10 +198,24 @@ class RealtimeSim:
             return "Running."
         if cmd == "target":
             return self.pilot.set_target(args.get("x_m"), args.get("y_m"), args.get("alt_m"), args.get("yaw_rad"))
+        if cmd == "wind":
+            return self.set_wind(args.get("speed_m_s", 0.0), args.get("direction_deg", 0.0), args.get("gust_m_s", 0.0))
         if cmd == "sticks":
             self.pilot.set_sticks(Sticks(**{k: float(args.get(k, 0.0)) for k in ("forward", "left", "up", "yaw")}))
             return ""
         raise ValueError(f"Unknown command '{cmd}'.")
+
+    def set_wind(self, speed_m_s, direction_deg, gust_m_s) -> str:
+        """Steady wind (blowing TOWARD direction_deg: 0 = east, 90 = north) plus random gusts. Applies at once."""
+        try:
+            env = EnvConfig(wind_speed_m_s=float(speed_m_s), wind_direction_deg=float(direction_deg), gust_std_m_s=float(gust_m_s))
+        except (TypeError, ValueError):
+            raise ValueError("Wind needs numbers: speed_m_s, direction_deg, gust_m_s.") from None
+        self.sim.set_env(env)  # raises ConfigError (a ValueError) if out of range
+        self.env = env
+        if not env.active:
+            return "Wind off: calm air."
+        return f"Wind {env.wind_speed_m_s:.1f} m/s toward {env.wind_direction_deg:.0f}°, gusts ±{env.gust_std_m_s:.1f} m/s."
 
     def snapshot(self) -> dict:
         """A compact, JSON-friendly picture of 'right now' for the UI (SI units, radians)."""
@@ -212,6 +236,7 @@ class RealtimeSim:
             "rate_rad_s": r(s.rate_rad_s),
             "motor_pct": r(self.sim.motor_pct, 1),
             "thrust_total_n": round(float(self.sim.physics.last_thrusts_n.sum()), 3),
+            "wind_m_s": r(self.sim.wind.current, 2) if self.sim.wind else [0.0, 0.0, 0.0],  # the air's velocity right now
             "setpoint": {
                 "x_m": round(sp.x_m, 3),
                 "y_m": round(sp.y_m, 3),

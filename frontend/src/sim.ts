@@ -20,6 +20,7 @@ export interface SimState {
   rate_rad_s: Vec3;
   motor_pct: [number, number, number, number]; // FR, RL, FL, RR
   thrust_total_n: number;
+  wind_m_s: Vec3; // the air's velocity right now (steady wind + gusts), world frame
   setpoint: { x_m: number; y_m: number; alt_m: number; yaw_rad: number };
   message: string;
   mission: MissionStatus | null; // set while the mission autopilot is flying
@@ -200,4 +201,10 @@ export const api = {
 };
 
 export const RAD_TO_DEG = 180 / Math.PI;
+
+const COMPASS = ['east', 'north-east', 'north', 'north-west', 'west', 'south-west', 'south', 'south-east'];
+/** 'east', 'north', … for a direction in degrees (0 = east, 90 = north: the sim's ENU convention). */
+export function compassName(deg: number): string {
+  return COMPASS[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+}
 export const GRAVITY_M_S2 = 9.81;

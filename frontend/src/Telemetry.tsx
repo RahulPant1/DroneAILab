@@ -1,6 +1,6 @@
 // Live numbers: where the drone is, how it's moving, how it's tilted, how hard each motor works.
 
-import { RAD_TO_DEG, useThrottledState } from './sim';
+import { compassName, RAD_TO_DEG, useThrottledState } from './sim';
 
 const MOTOR_LABELS = ['M1 front-right', 'M2 rear-left', 'M3 front-left', 'M4 rear-right'];
 
@@ -12,6 +12,9 @@ export default function Telemetry({ onLearn }: { onLearn: (slug: string) => void
 
   const [roll, pitch, yaw] = s.euler_rad.map((r) => r * RAD_TO_DEG);
   const speed = Math.hypot(...s.vel_m_s);
+  const [wx, wy] = s.wind_m_s ?? [0, 0, 0];
+  const windSpeed = Math.hypot(wx, wy);
+  const windDir = ((Math.atan2(wy, wx) * RAD_TO_DEG) + 360) % 360;
 
   return (
     <section className="panel telemetry">
@@ -30,6 +33,9 @@ export default function Telemetry({ onLearn }: { onLearn: (slug: string) => void
         </tbody>
       </table>
       <p className="muted small">Speed {f(speed)} m/s · total thrust {f(s.thrust_total_n, 1)} N</p>
+      <p className="muted small" title="The air's velocity at the drone right now (steady wind + gusts)">
+        {windSpeed < 0.05 ? 'Wind: calm' : `Wind ${f(windSpeed, 1)} m/s toward ${compassName(windDir)} (${f(windDir, 0)}°)`}
+      </p>
 
       <table className="nums">
         <thead><tr><th></th><th>Roll</th><th>Pitch</th><th>Yaw</th></tr></thead>
