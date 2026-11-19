@@ -9,7 +9,7 @@ export type Quat = [number, number, number, number]; // [w, x, y, z], body -> wo
 export interface SimState {
   type: 'state';
   t_s: number;
-  mode: 'idle' | 'takeoff' | 'hover' | 'land';
+  mode: 'idle' | 'takeoff' | 'hover' | 'land' | 'mission';
   paused: boolean;
   armed: boolean;
   on_ground: boolean;
@@ -22,6 +22,34 @@ export interface SimState {
   thrust_total_n: number;
   setpoint: { x_m: number; y_m: number; alt_m: number; yaw_rad: number };
   message: string;
+  mission: MissionStatus | null; // set while the mission autopilot is flying
+}
+
+export interface MissionStatus {
+  planner: string;
+  phase: 'takeoff' | 'cruise' | 'land' | 'landed' | 'crashed' | 'stuck';
+  next_wp: number;
+  waypoints_total: number;
+}
+
+export interface CourseBox {
+  x_min: number;
+  x_max: number;
+  y_min: number;
+  y_max: number;
+  height_m: number;
+}
+
+/** A mission course loaded into the live sim: drawn in the 3D view. */
+export interface Course {
+  id: string;
+  title: string;
+  waypoints: [number, number][];
+  obstacles: CourseBox[];
+  cruise_alt_m: number;
+  safety_zone_m: number; // drone radius + safety margin: A* keeps the drone's centre outside this
+  route: [number, number][] | null; // planned route of the current mission (null = none yet)
+  planner: string | null;
 }
 
 export interface Derived {
@@ -58,6 +86,7 @@ type Listener = () => void;
 class SimConnection {
   latest: SimState | null = null;
   config: DroneConfig | null = null;
+  course: Course | null = null;
   status: Status = 'connecting';
   log: LogEntry[] = [];
   version = 0; // bumps on config / status / log changes (not on every state frame)
@@ -84,6 +113,7 @@ class SimConnection {
         return;
       }
       if (msg.type === 'config') this.config = msg.config as DroneConfig;
+      if (msg.course !== undefined) this.course = msg.course as Course | null;
       if (msg.message) this.addLog(msg.type === 'error' ? 'error' : 'info', msg.message);
       this.bump();
     };
@@ -159,6 +189,7 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => getJson<Health>('/api/health'),
   presets: () => getJson<PresetsResponse>('/api/presets'),
+  scenarios: () => getJson<{ planners: string[]; scenarios: Record<string, { title: string }> }>('/api/missions/scenarios'),
   learn: (slug: string) => getJson<{ markdown: string }>(`/api/learn/${slug}`),
   validate: (config: DroneConfig) =>
     getJson<{ valid: boolean; problems: string[]; derived: Derived | null }>('/api/config/validate', {

@@ -193,6 +193,18 @@ potential field (made the approach angled); a NaN metric in early-ending runs.
 **Not verified by me:** the look of the map in a real browser.
 
 **Limitations:** 2D planning at one cruise altitude (low boxes can be flown over, but there's no climbing over tall
-ones); the obstacles are known in advance (no sensing); missions are Lab runs, not shown in the live 3D Fly view.
+ones); the obstacles are known in advance (no sensing).
+
+## Extra: missions in the live 3D Fly view (done 2026-11-19)
+- `backend/autonomy/live.py` `MissionSim`: the live sim plus an optional course. WebSocket commands
+  `{"cmd": "course", "scenario": id|null}` and `{"cmd": "mission", "planner", "cruise_speed_m_s"}`.
+  The same MissionFollower as the Lab flies it in real time; when it lands, crashes or gets stuck, control
+  returns to the user (stuck = hover). Hover / Land / Fly-to take over mid-mission.
+- Manual flight on a course: touching a box stops the motors; sideways motion stops at the wall so the drone
+  drops beside it (a crude impact model, live view only; Lab metrics are unchanged).
+- 3D: obstacles (translucent boxes), keep-out outlines on the ground, waypoint rings at cruise height
+  (green done / yellow next), dashed planned route, camera framed on the course when it loads.
+- Live outcomes match the Lab matrix for all 12 scenario/planner pairs (tests). A mission costs ~2.5 % of one core.
+- Tests: 137 pass (+17 in `test_live_missions.py`). **Not verified by me:** the look in a real browser.
 
 ## Next: Roadmap items (PX4/Gazebo, ROS 2, vision, …) only with explicit approval.

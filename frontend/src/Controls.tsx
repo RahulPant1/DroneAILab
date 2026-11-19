@@ -1,7 +1,7 @@
-// Flight buttons, keyboard nudges, and a "fly to" box.
+// Flight buttons, keyboard nudges, a "fly to" box, and the mission bar (course + autopilot).
 
 import { useEffect, useState } from 'react';
-import { sim, useSimUi, useThrottledState } from './sim';
+import { api, sim, useSimUi, useThrottledState, type SimState } from './sim';
 
 const MOVE_KEYS: Record<string, [keyof Sticks, number]> = {
   w: ['forward', 1], s: ['forward', -1],
@@ -65,7 +65,8 @@ export default function Controls({ follow, setFollow }: { follow: boolean; setFo
   const s = useThrottledState(5);
   const [alt, setAlt] = useState(2);
   const [target, setTarget] = useState({ x: 3, y: 0, alt: 2 });
-  const flying = s?.mode === 'takeoff' || s?.mode === 'hover';
+  const auto = s?.mode === 'mission'; // the mission autopilot is flying; Hover / Land / Go take over
+  const flying = s?.mode === 'takeoff' || s?.mode === 'hover' || auto;
   const offline = status !== 'open';
 
   return (
@@ -96,6 +97,72 @@ export default function Controls({ follow, setFollow }: { follow: boolean; setFo
         </label>
         <label className="inline"><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> camera follows</label>
       </div>
+      <MissionBar s={s} offline={offline} />
+    </div>
+  );
+}
+
+const PLANNER_LABELS: Record<string, string> = {
+  straight: 'Straight lines (ignores obstacles)',
+  potential: 'Potential field (reactive)',
+  astar: 'A* (plans ahead)',
+};
+
+const PHASE_LABELS: Record<string, string> = { takeoff: 'taking off', cruise: 'flying the route', land: 'landing' };
+
+/** Load a course into the 3D world, and let the mission autopilot fly it (or fly it yourself). */
+function MissionBar({ s, offline }: { s: SimState | null; offline: boolean }) {
+  const { course } = useSimUi();
+  const [scenarios, setScenarios] = useState<Record<string, { title: string }>>({});
+  const [planner, setPlanner] = useState('astar');
+  const [speed, setSpeed] = useState(1.5);
+  useEffect(() => {
+    api.scenarios().then((r) => setScenarios(r.scenarios)).catch(() => setScenarios({}));
+  }, []);
+  const m = s?.mission;
+
+  return (
+    <div className="mission-bar">
+      <div className="row small">
+        <label className="inline" title="Put obstacles and waypoints into the 3D world. The drone moves to the start point.">
+          🗺 Course
+          <select value={course?.id ?? ''} disabled={offline} onChange={(e) => sim.send('course', { scenario: e.target.value || null })}>
+            <option value="">Free flight (no obstacles)</option>
+            {Object.entries(scenarios).map(([id, sc]) => <option key={id} value={id}>{sc.title}</option>)}
+          </select>
+        </label>
+        {course && (
+          <>
+            <label className="inline" title="How the autopilot gets past obstacles">
+              planner
+              <select value={planner} onChange={(e) => setPlanner(e.target.value)}>
+                {Object.entries(PLANNER_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            </label>
+            <label className="inline" title="Cruise speed along the route (0.3–3 m/s)">
+              speed <input type="number" min={0.3} max={3} step={0.1} value={speed} onChange={(e) => setSpeed(Number(e.target.value))} /> m/s
+            </label>
+            <button className="primary" disabled={offline || speed < 0.3 || speed > 3}
+              onClick={() => sim.send('mission', { planner, cruise_speed_m_s: speed })}
+              title="Back to the start, plan a route, then the autopilot flies it">
+              ▶ Fly mission
+            </button>
+          </>
+        )}
+        <span className="spacer" />
+        {m && (
+          <span className="mission-status">
+            Autopilot ({m.planner}): {PHASE_LABELS[m.phase] ?? m.phase}
+            {m.phase === 'cruise' && ` · heading for waypoint ${Math.min(m.next_wp, m.waypoints_total)} of ${m.waypoints_total}`}
+          </span>
+        )}
+      </div>
+      {course && (
+        <p className="muted small course-legend">
+          Grey boxes = obstacles ({course.obstacles[0]?.height_m ?? 4} m tall; fly above them to pass over) · orange ring on the ground = keep-out zone ·
+          rings = waypoints at {course.cruise_alt_m} m (green done, yellow next) · yellow dashes = planned route. Touching a box stops the motors.
+        </p>
+      )}
     </div>
   );
 }

@@ -141,10 +141,19 @@ class RealtimeSim:
     def reset(self, config: DroneConfig | None = None, seed: int | None = None) -> None:
         self.config = config or self.config
         self.seed = self.seed if seed is None else seed
-        self.sim.reset(self.config, self.seed)
+        self.sim.reset(self.config, self.seed, self.start_state())
         self.pilot = Pilot()
         self.paused = False
         self._time_debt_s = 0.0
+        self.notices: list[str] = []  # one-off messages for the UI's log (the WebSocket loop sends them)
+
+    def start_state(self) -> State | None:
+        """Where the drone sits after a reset (None = on the ground at the origin)."""
+        return None
+
+    def next_setpoint(self, dt_s: float) -> Setpoint:
+        """What the controller should aim for during the next physics step (the pilot decides)."""
+        return self.pilot.update(self.state, dt_s)
 
     @property
     def state(self) -> State:
@@ -158,7 +167,7 @@ class RealtimeSim:
         n_steps = int(self._time_debt_s / PHYSICS_DT_S)
         self._time_debt_s -= n_steps * PHYSICS_DT_S
         for _ in range(n_steps):
-            self.sim.step(self.pilot.update(self.state, PHYSICS_DT_S))
+            self.sim.step(self.next_setpoint(PHYSICS_DT_S))
         return n_steps
 
     def command(self, cmd: str, **args) -> str:

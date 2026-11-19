@@ -9,7 +9,9 @@ import { Grid, OrbitControls } from '@react-three/drei';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { sim, type Vec3 } from './sim';
+import CourseView, { courseBounds } from './CourseView';
+import Label from './Label3D';
+import { sim, useSimUi, type Vec3 } from './sim';
 
 const ENU_TO_THREE: [number, number, number] = [-Math.PI / 2, 0, 0];
 
@@ -158,31 +160,6 @@ function Markers({ armLength }: { armLength: number }) {
   );
 }
 
-/** A text label drawn onto a small canvas and shown as a sprite (always faces the camera).
- *  Uses the system font, so it works offline. */
-function Label({ text, color, position }: { text: string; color: string; position: [number, number, number] }) {
-  const texture = useMemo(() => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 64;
-    const ctx = canvas.getContext('2d')!;
-    ctx.font = 'bold 40px system-ui, sans-serif';
-    ctx.fillStyle = color;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, 128, 32);
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
-  }, [text, color]);
-  useEffect(() => () => texture.dispose(), [texture]);
-  return (
-    <sprite position={position} scale={[0.6, 0.15, 1]}>
-      <spriteMaterial map={texture} transparent depthWrite={false} />
-    </sprite>
-  );
-}
-
 function Axes() {
   return (
     <>
@@ -209,6 +186,36 @@ function FollowCamera({ enabled }: { enabled: boolean }) {
   return null;
 }
 
+/** The loaded mission course (if any), and a camera move to show all of it whenever a different course loads. */
+function CourseLayer() {
+  const { course } = useSimUi();
+  return course ? <CourseView course={course} /> : null;
+}
+
+function FrameCourse() {
+  const { course } = useSimUi();
+  const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void } | null;
+  const camera = useThree((s) => s.camera);
+  const invalidate = useThree((s) => s.invalidate);
+  const id = course?.id ?? null;
+  const last = useRef<string | null>(null);
+  useEffect(() => {
+    if (!controls || id === last.current) return;
+    last.current = id;
+    if (course) {
+      const { cx, cy, span } = courseBounds(course);
+      controls.target.set(cx, 1, -cy); // three.js coords: (east, up, -north)
+      camera.position.set(cx, 1 + span * 0.75, -cy + span * 0.95); // from the south, looking north
+    } else {
+      controls.target.set(0, 0.5, 0);
+      camera.position.set(2.5, 2.2, 3.5);
+    }
+    controls.update();
+    invalidate();
+  }, [id, course, controls, camera, invalidate]);
+  return null;
+}
+
 export default function Scene({ armLength, follow }: { armLength: number; follow: boolean }) {
   return (
     <Canvas frameloop="demand" dpr={[1, 1.5]} camera={{ position: [2.5, 2.2, 3.5], fov: 50, near: 0.05, far: 500 }}>
@@ -228,12 +235,14 @@ export default function Scene({ armLength, follow }: { armLength: number; follow
       />
       <group rotation={ENU_TO_THREE}>
         <Axes />
+        <CourseLayer />
         <Trail />
         <Markers armLength={armLength} />
         <Drone armLength={armLength} />
       </group>
       <OrbitControls makeDefault target={[0, 0.5, 0]} maxPolarAngle={Math.PI / 2 - 0.02} />
       <FollowCamera enabled={follow} />
+      <FrameCourse />
       <RedrawOnState />
     </Canvas>
   );

@@ -103,7 +103,7 @@ main.scroll { overflow-y: auto; }
 /* ---- Telemetry ---- */
 .mode-line { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .mode { text-transform: uppercase; font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--panel-2); }
-.mode-hover { color: var(--good); } .mode-takeoff, .mode-land { color: var(--warn); } .mode-idle { color: var(--muted); }
+.mode-hover { color: var(--good); } .mode-mission { color: var(--accent); } .mode-takeoff, .mode-land { color: var(--warn); } .mode-idle { color: var(--muted); }
 table.nums { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; margin-top: 6px; }
 table.nums th, table.nums td { padding: 3px 4px; text-align: right; font-weight: normal; }
 table.nums thead th { color: var(--muted); font-size: 12px; }
@@ -236,3 +236,8 @@ table.diff td:nth-child(3) { color: var(--muted); text-align: center; }
 .sw.plan { background: repeating-linear-gradient(90deg, var(--warn) 0 6px, transparent 6px 10px); }
 .sw.obstacle { height: 10px; background: #4a2230; border: 1px solid var(--bad); }
 .sw.zone { height: 10px; border: 1px dashed rgba(239, 71, 111, 0.5); }
+
+/* Mission bar under the 3D view */
+.mission-bar { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; }
+.mission-status { color: var(--accent); font-weight: 600; }
+.course-legend { margin: 4px 0 0; }

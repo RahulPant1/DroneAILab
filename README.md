@@ -18,6 +18,10 @@ cp .env.example .env
 ```
 Click **Take off**, then hold W/A/S/D (move), R/F (up/down), Q/E (turn).
 
+**Courses in 3D:** under the 3D view, pick a **Course** (e.g. Box canyon) to put obstacles and waypoint rings
+into the world. Fly it yourself (touching a box stops the motors), or choose a planner and press **▶ Fly mission**
+to watch the autopilot fly it live. Hover / Land take over from the autopilot.
+
 **Low on memory?** Use `./run.sh --lite`. It builds the web page once (and again only after frontend
 files change), then a single Python server runs everything: about **70 MB of RAM instead of ~300–550 MB**,
 same address (http://localhost:5174). Use plain `./run.sh` when you're editing the frontend and want live reload.

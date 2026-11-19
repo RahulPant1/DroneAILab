@@ -20,6 +20,11 @@ Even a perfect plan isn't followed perfectly:
 - **Clearance plot:** the gap between the drone's edge and the nearest obstacle. 0 means a collision.
 - **Box canyon:** potential field (stuck) vs A* (around). **Patrol at 3 m/s:** corner cutting.
 
+## Watch it in 3D
+In the **Fly** tab, pick a **Course** under the 3D view. Press **▶ Fly mission** to watch the autopilot fly it
+live, or fly it yourself with the keyboard and see how hard it is to keep a safe gap from the boxes.
+Try the box canyon with the potential field: you'll see the drone stop in the trap, then you get the controls.
+
 ## Real drones
 PX4 and ArduPilot fly waypoint missions exactly like this (take-off, waypoints, land). Real obstacle avoidance adds sensors (cameras, lidar) to *discover* obstacles. Here the map is known in advance.
 

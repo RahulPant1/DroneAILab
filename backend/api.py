@@ -5,6 +5,7 @@
   POST /api/config/validate  -> {valid, problems, derived}
   GET  /api/learn/{slug}     -> a docs/learn/ page as Markdown text
   WS   /ws/sim               -> live simulation (client sends commands, server streams state ~30 Hz)
+                               incl. {"cmd": "course", "scenario": id|null} and {"cmd": "mission", "planner", "cruise_speed_m_s"}
 
   GET  /api/experiments                -> the six Lab experiments (sliders, concept, metrics)
   POST /api/experiments/{id}/run       -> run headless, returns a RunResult
@@ -47,7 +48,7 @@ from .sim.environment import EnvConfig
 from .ai.ollama_client import AIError, AIOffline, OllamaClient
 from .experiments import EXPERIMENTS, ExperimentError, get_experiment
 from .sim.config import GAIN_LIMITS, LIMITS, PRESETS, ConfigError, DroneConfig, get_preset, validate_config
-from .sim.runner import RealtimeSim
+from .autonomy.live import MissionSim
 from .storage import RunStore, StorageError, compare
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -301,7 +302,7 @@ async def assistant_suggest(body: dict) -> dict:
     return await _with_ai(lambda: ai_assistant.suggest(get_ai_client(), runs, str(body.get("goal") or "")))
 
 
-def handle_message(session: RealtimeSim, msg) -> dict | None:
+def handle_message(session: MissionSim, msg) -> dict | None:
     """Apply one client message. Returns a reply for the client, or None."""
     if not isinstance(msg, dict) or not isinstance(msg.get("cmd"), str):
         return {"type": "error", "message": 'Messages look like {"cmd": "takeoff"}.'}
@@ -314,11 +315,13 @@ def handle_message(session: RealtimeSim, msg) -> dict | None:
             if problems:
                 return {"type": "error", "message": " ".join(problems)}
             session.reset(cfg)
-            return {"type": "config", "config": cfg.to_dict(), "message": f"Reset with '{cfg.name}'."}
+            return {"type": "config", "config": cfg.to_dict(), "course": session.course_info(), "message": f"Reset with '{cfg.name}'."}
         if cmd == "reset":
             session.reset()
-            return {"type": "config", "config": session.config.to_dict(), "message": "Reset."}
+            return {"type": "config", "config": session.config.to_dict(), "course": session.course_info(), "message": "Reset."}
         text = session.command(cmd, **args)
+        if cmd in ("course", "mission"):
+            return {"type": "course", "course": session.course_info(), "message": text}
         return {"type": "info", "message": text} if text else None
     except (ConfigError, ValueError, TypeError) as exc:
         return {"type": "error", "message": str(exc)}
@@ -328,8 +331,8 @@ def handle_message(session: RealtimeSim, msg) -> dict | None:
 async def ws_sim(ws: WebSocket) -> None:
     """One live simulation per browser tab. It stops when the tab disconnects."""
     await ws.accept()
-    session = RealtimeSim(get_preset("basic"))
-    outbox: list[dict] = [{"type": "config", "config": session.config.to_dict(), "message": "Connected."}]
+    session = MissionSim(get_preset("basic"))
+    outbox: list[dict] = [{"type": "config", "config": session.config.to_dict(), "course": None, "message": "Connected."}]
 
     async def receive_loop() -> None:
         while True:
@@ -351,6 +354,8 @@ async def ws_sim(ws: WebSocket) -> None:
             now = loop.time()
             session.advance(now - last)
             last = now
+            while session.notices:
+                outbox.append({"type": "info", "message": session.notices.pop(0)})
             while outbox:
                 await ws.send_json(outbox.pop(0))
             await ws.send_json(session.snapshot())
