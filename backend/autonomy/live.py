@@ -3,12 +3,15 @@
 With a course loaded:
   - you can fly it yourself (keyboard / buttons). Touching an obstacle stops the motors, like in the Lab.
   - "Fly mission" puts the drone on the start point, plans a route with the chosen planner, and lets the
-    same MissionFollower as the Lab fly it, in real time. When it lands, crashes or gets stuck, the
+    same MissionFollower as the Lab fly it, in real time. It navigates on the estimate (so with sensor
+    noise on it can be fooled, like a real autopilot); crashes and ground contact use the truth. When it lands, crashes or gets stuck, the
     controls come back to you (stuck = it hovers where it is).
   - Hover / Land / Fly-to during a mission take over from the autopilot.
 """
 
 from __future__ import annotations
+
+import math
 
 from backend.sim.config import DroneConfig
 from backend.sim.control import Setpoint
@@ -130,10 +133,16 @@ class MissionSim(RealtimeSim):
     def next_setpoint(self, dt_s: float) -> Setpoint:
         s = self.state
         if self.follower:
-            sp = self.follower.setpoint_for(s, s.time_s)
+            sp = self.follower.setpoint_for(self.sim.estimate, s.time_s, s)  # navigates on the estimate
             for ev in self.follower.events[self._events_seen:]:
-                self.notices.append(ev["message"])
-                self.pilot.message = ev["message"]
+                msg = ev["message"]
+                if ev["type"] == "waypoint" and self.sim.estimator:
+                    # The autopilot judged this from its estimate; say where the drone REALLY was.
+                    wx, wy = self.mission.waypoints[self.follower.next_wp - 1]
+                    real = math.hypot(wx - s.pos_m[0], wy - s.pos_m[1])
+                    msg = f"{msg[:-1]}, by its estimate. Really {real:.2f} m away."
+                self.notices.append(msg)
+                self.pilot.message = msg
             self._events_seen = len(self.follower.events)
             if self.follower.phase == "crashed":
                 self._hit_wall(s)

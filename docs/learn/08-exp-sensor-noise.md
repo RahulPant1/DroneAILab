@@ -28,4 +28,7 @@
 ## Try it live
 In the **Fly** tab, tick **📡 Sensor noise** and hover. The pink ghost outline is the drone's *estimate* of itself.
 The controller keeps the ghost on target, so the real drone wanders by about the estimate error. Turn the level up
-to 3× and watch the gap grow. Then fly a mission through the slalom: does the safety margin still hold?
+to 3× and watch the gap grow. Then fly a mission through the slalom. The mission autopilot also only knows the estimate, so it can say "Reached
+waypoint 1" while really being 0.6 m away (the message tells you both). At 1x the safety margin holds; at 3x the
+estimate is often wrong by more than the margin, and the drone can clip a box. That's why real drones with poor
+GPS fly slower and with wider margins.

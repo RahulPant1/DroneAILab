@@ -219,10 +219,22 @@ ones); the obstacles are known in advance (no sensing).
 - WebSocket `{"cmd": "sensors", "enabled", "noise_scale"}` switches noisy sensors + estimator on/off mid-flight
   (`LightweightSim.set_sensors`; a new estimator starts at the true state). Kept through Reset. Off by default,
   so the live view is unchanged unless you tick it. State frames carry `est_pos_m` / `est_quat`.
-- The controller flies on the estimate; the buttons' autopilot, mission follower and collision checks use the truth.
+- The controller flies on the estimate; the buttons' autopilot and collision checks use the truth (the mission
+  follower was moved to the estimate afterwards, see below).
 - UI: 📡 Sensor noise checkbox + level (0.5–3×), pink ghost outline at the estimated position/tilt, "estimate off by" line.
 - Hover at 2 m, 15 s: wander std 0.15 m (1×) / 0.4 m (3×); estimate error mean 0.16 m / 0.47 m (max 1.1 m at 3×).
   A* still completes the slalom at 3×.
 - Tests: 143 pass (+3). **Not verified by me:** the look in a real browser.
+
+## Extra: the mission autopilot navigates on the estimate (done 2026-11-19)
+- `MissionFollower.setpoint_for(estimate, t, truth)`: steering, waypoint and stuck decisions use the estimate;
+  obstacle contact and ground contact use the truth (the estimator doesn't track ground contact, so using it
+  would cut the motors at altitude). With sensors off the two are identical, so Lab results are unchanged.
+- "Passed waypoint" now needs the distance to grow by 0.3 m (was 0.05 m): with noise, estimate jitter alone
+  was triggering it (patrol at 1x: "missed by 1.27 m" for a waypoint it actually reached).
+- Live messages with noise on: "Reached waypoint 1, by its estimate. Really 0.65 m away."
+- A* over 5 seeds: patrol lands 5/5 at 0/1/3x; slalom lands 5/5 at 1x (gap 0.23–0.48 m) but **crashes 3/5 at 3x**:
+  the estimate error then exceeds the 0.4 m safety margin.
+- Tests: 145 pass (+2).
 
 ## Next: Roadmap items (PX4/Gazebo, ROS 2, vision, …) only with explicit approval.

@@ -204,3 +204,29 @@ def test_sensor_setting_survives_reset_and_can_be_switched_off_mid_flight():
     assert abs(rt.state.pos_m[2] - 2.0) < 0.3  # still flying fine
     with pytest.raises(ValueError, match="noise_scale"):
         rt.command("sensors", enabled=True, noise_scale=50)
+
+
+# ---- the mission autopilot navigates on the estimate ----
+
+
+def fly_noisy(scenario: str, noise: float, seed: int) -> list[str]:
+    rt = MissionSim(BASIC, seed=seed)
+    if noise:
+        rt.command("sensors", enabled=True, noise_scale=noise)
+    rt.load_course(scenario)
+    rt.start_mission("astar")
+    return run_live(rt)
+
+
+def test_noisy_autopilot_still_lands_properly_and_reports_the_real_miss():
+    notes = fly_noisy("slalom", 1.0, seed=0)
+    assert notes[-1] == "Landed at the final waypoint."  # ground contact comes from the truth, so no early motor cut
+    wp = next(n for n in notes if "waypoint 1" in n)
+    assert "by its estimate. Really" in wp
+
+
+def test_very_noisy_sensors_can_fool_the_autopilot_into_a_box():
+    # 3x noise: the estimate is often wrong by more than A*'s 0.4 m margin, so some slalom runs hit a box.
+    outcomes = [fly_noisy("slalom", 3.0, seed)[-1] for seed in range(5)]
+    assert any("Hit an obstacle" in o for o in outcomes)
+    assert all("Hit an obstacle" not in fly_noisy("slalom", 0.0, seed)[-1] for seed in range(2))

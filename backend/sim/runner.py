@@ -324,7 +324,7 @@ def run_headless(
     """Run a whole flight as fast as possible and return a RunResult.
 
     `setpoint` is either fixed, a function of time (seconds) returning a Setpoint, or an object with
-    `setpoint_for(state, time_s)` (e.g. a mission follower that needs to see where the drone is).
+    `setpoint_for(estimate, time_s, truth)` (e.g. a mission follower: it navigates on the estimate).
     `stop_when` (checked at 50 Hz) can end the run early, e.g. once a mission has landed.
     Telemetry is recorded at 50 Hz; wind and estimate channels are added when those are on.
     """
@@ -333,7 +333,7 @@ def run_headless(
     sim = LightweightSim()
     state = sim.reset(config, seed, initial_state, env, sensors)
     if hasattr(setpoint, "setpoint_for"):
-        setpoint_at = lambda t: setpoint.setpoint_for(state, t)  # noqa: E731
+        setpoint_at = lambda t: setpoint.setpoint_for(sim.estimate, t, state)  # noqa: E731  (belief, time, truth)
     elif callable(setpoint):
         setpoint_at = setpoint
     else:

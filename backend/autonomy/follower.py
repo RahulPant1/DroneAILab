@@ -2,6 +2,11 @@
 
 Phases: takeoff -> cruise -> land -> done.  (Or: crashed / stuck -> done.)
 
+What it can see: like a real autopilot, it NAVIGATES on the drone's estimate of itself (which equals the truth
+when sensors are perfect). Physical facts come from the true state: touching an obstacle, and touching the
+ground (our estimator doesn't track ground contact). So with noisy sensors it can believe it reached a waypoint
+while really being a little off; the run's metrics, measured from the true path, show that miss.
+
 How it steers during cruise:
   route planners (straight, astar): a "carrot" point slides along the route at the cruise speed, and the
       position controller chases it. If the drone falls too far behind, the carrot waits.
@@ -21,6 +26,7 @@ from .planner import Point
 from .world import DRONE_RADIUS_M, Box, clearance_m
 
 WAYPOINT_REACHED_M = 0.5
+PASSED_MARGIN_M = 0.3  # 'passed' needs the distance to grow by this much: more than estimate jitter
 TAKEOFF_DONE_M = 0.15
 LAND_SPEED_M_S = 0.6
 CARROT_LEASH_M = 2.0  # the carrot waits if the drone is more than this far behind
@@ -114,7 +120,9 @@ class MissionFollower:
 
     # ---- called every physics step ----
 
-    def setpoint_for(self, state: State, t: float) -> Setpoint:
+    def setpoint_for(self, state: State, t: float, truth: State | None = None) -> Setpoint:
+        """`state` = what the autopilot believes (the estimate); `truth` = the real state (defaults to `state`)."""
+        truth = truth or state
         dt = max(0.0, t - self._t_last)
         self._t_last = t
         x, y, z = (float(v) for v in state.pos_m)
@@ -122,11 +130,12 @@ class MissionFollower:
         if t >= self._end_at:
             self.done = True
 
-        if self.phase in ("cruise", "takeoff", "land") and clearance_m(self.m.obstacles, x, y, z) < 0:
+        tx, ty, tz = (float(v) for v in truth.pos_m)
+        if self.phase in ("cruise", "takeoff", "land") and clearance_m(self.m.obstacles, tx, ty, tz) < 0:
             self.phase = "crashed"
             sp.armed = False
             self._end_at = t + END_AFTER_S + 1.5
-            self._event(t, "collision", f"Hit an obstacle at ({x:.1f}, {y:.1f}). Motors stopped.", x, y)
+            self._event(t, "collision", f"Hit an obstacle at ({tx:.1f}, {ty:.1f}). Motors stopped.", tx, ty)
             return sp
 
         if self.phase == "takeoff":
@@ -147,7 +156,7 @@ class MissionFollower:
                 # away again (it cut the corner). The closest approach is recorded, so the miss is visible.
                 passed = (
                     self.planner != "potential" and not last
-                    and self.s >= self.wp_s[self.next_wp - 1] and d > self._wp_closest + 0.05
+                    and self.s >= self.wp_s[self.next_wp - 1] and d > self._wp_closest + PASSED_MARGIN_M
                 )  # fmt: skip
                 if d < WAYPOINT_REACHED_M or passed:
                     miss = self._wp_closest
@@ -184,7 +193,7 @@ class MissionFollower:
         elif self.phase == "land":
             self._land_alt = max(-0.3, self._land_alt - LAND_SPEED_M_S * dt)
             sp.alt_m = self._land_alt
-            self._ground_time = self._ground_time + dt if state.on_ground else 0.0
+            self._ground_time = self._ground_time + dt if truth.on_ground else 0.0
             if self._ground_time > 0.3:
                 sp.armed = False
                 self.phase = "landed"
