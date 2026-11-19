@@ -3,7 +3,7 @@
 **Source of truth:** `docs/PRD.md`. Read it fully before any work.
 
 ## Current phase
-Phase 0 done (env checked, `.venv` + Python deps installed). Next: Phase 1a, waiting for the user's "go". Update this line at every phase change.
+Phase 1a done (headless physics core + CLI + 23 tests). Next: Phase 1b (browser UI), waiting for the user's "go". Update this line at every phase change.
 
 ## Machine facts (from Phase 0)
 Project at `~/DroneAILab`. Ubuntu 22.04 on WSL2 (mirrored networking). WSL has 9 GB RAM, **swap = 0**, 4 CPUs. Treat RAM as tight.

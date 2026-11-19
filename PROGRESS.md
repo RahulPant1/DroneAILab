@@ -27,4 +27,30 @@ model tag exists; `ollama ps` is empty (no model loaded).
 
 **Footprint:** project 83 MB (all of it `.venv`).
 
-## Next: Phase 1a (headless physics core). Waiting for "go".
+## Phase 1a: Headless physics core (done 2026-11-19)
+
+**Built:** `backend/sim/` (`config`, `frames`, `physics`, `control`, `runner`, `metrics`), `backend/cli.py`,
+23 tests in `backend/tests/`, lesson `docs/learn/01-thrust-and-hover.md`, `README.md`.
+
+**Acceptance:** all pass (`.venv/bin/pytest` → 23 passed in ~2.3 s).
+| Requirement | Result |
+|---|---|
+| Hover at 2.0 m, ±0.05 m from 5 to 10 s | max error 0.014 m (overshoot 0.8 %, settled at 2.4 s) |
+| T/W < 1 never leaves the ground + explains why | yes (rule-based summary) |
+| Doubling the mass raises hover % | 0.6 → 1.2 kg: ratio 2.00 |
+| Same seed gives identical telemetry | yes |
+| Free fall vs ½·g·t² within 1 % | ≤ 0.1 % at 2 s, max abs error 2 cm (from t ≥ 0.25 s; see the test docstring) |
+| 20 s headless run < 3 s | ~0.3 s (120 s run: 1.9 s) |
+
+**Footprint:** peak RAM of a run ~39 MB; project 86 MB on disk.
+
+**Design notes:**
+- Motor % maps to thrust linearly (speed = max · √%), so hover % = 100 / (T/W).
+- The mixer keeps attitude torques when a motor saturates by shifting the collective.
+- The altitude PID uses an integral zone (0.3 m) to stop windup on take-off (the overshoot was 8 % without it).
+- The controller sees true state for now (no sensors/estimator until Phase 2).
+
+**Known limitations:** no position control yet (Phase 1b); simple ground contact (no tipping, drone is
+levelled on touchdown); a 120 s run's JSON is ~1.1 MB. Floats should be rounded before saving runs in Phase 2.
+
+## Next: Phase 1b (fly it in the browser). Waiting for "go".
