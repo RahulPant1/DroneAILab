@@ -18,6 +18,10 @@ cp .env.example .env
 ```
 Click **Take off**, then hold W/A/S/D (move), R/F (up/down), Q/E (turn).
 
+**Low on memory?** Use `./run.sh --lite`. It builds the web page once (and again only after frontend
+files change), then a single Python server runs everything: about **70 MB of RAM instead of ~300–550 MB**,
+same address (http://localhost:5174). Use plain `./run.sh` when you're editing the frontend and want live reload.
+
 **Lab** tab: six guided experiments (thrust, mass, roll/pitch/yaw, PID tuning, wind, sensor noise),
 each with sliders, plots, a "what happened" explanation and "try next" ideas. Save runs, then use the
 **History** tab to compare two of them on overlaid plots, or export as CSV/JSON.

@@ -20,6 +20,8 @@
 
 The LLM is never loaded here: the health check only asks Ollama for its model LIST.
 Run with: .venv/bin/uvicorn backend.api:app --host 127.0.0.1 --port 8001  (or ./run.sh)
+Lite mode (./run.sh --lite): DRONELAB_FRONTEND_DIST points at the built frontend, and this server also
+serves the web page itself, so no Node process is needed while the app runs.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 
 from .ai import assistant as ai_assistant
 from .ai.ollama_client import AIError, AIOffline, OllamaClient
@@ -317,3 +320,21 @@ async def ws_sim(ws: WebSocket) -> None:
         pass
     finally:
         receiver.cancel()
+
+
+# ---- Lite mode: serve the pre-built frontend from this server (must be added AFTER all routes) ----
+
+
+def mount_frontend(target: FastAPI, dist_dir: str | Path) -> bool:
+    """Serve the built web page (index.html + assets) at '/'. API and WebSocket routes keep priority
+    because they were registered first. Returns False if the folder has no index.html."""
+    dist = Path(dist_dir)
+    if not (dist / "index.html").is_file():
+        return False
+    target.mount("/", StaticFiles(directory=dist, html=True), name="frontend")
+    return True
+
+
+if os.environ.get("DRONELAB_FRONTEND_DIST"):
+    if not mount_frontend(app, os.environ["DRONELAB_FRONTEND_DIST"]):
+        print(f"Warning: no built frontend in {os.environ['DRONELAB_FRONTEND_DIST']} (run: npm --prefix frontend run build)")

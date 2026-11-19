@@ -158,4 +158,9 @@ filter (not an EKF); live flight (Fly tab) still uses perfect sensors and no win
 **Known limitations:** the model sometimes suggests a different experiment than the one discussed (it's still
 validated and safe); the first answer after idle waits for the model to load; no streaming (the answer appears all at once).
 
+## Extra: `./run.sh --lite` (2026-11-19)
+Builds the frontend only when its files changed, then one uvicorn process serves the page, API and WebSocket on
+the frontend port (5174). RAM: ~70 MB vs ~280–530 MB in dev mode. Verified: first start builds (2.5 s), later starts
+skip the build (0.6 s), a source change triggers a rebuild, live flight and Lab work, Ctrl+C leaves nothing running.
+
 ## Next: Phase 4 (basic autonomy) only if the user asks.

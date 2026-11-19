@@ -27,7 +27,7 @@ plain-English docstrings on physics/control functions.
 ## Commands (fill in as they are created)
 - Setup (Python): `uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r backend/requirements.txt`
 - Setup (frontend, Phase 1b): `cd frontend && npm install`
-- Run app: `./run.sh` → http://localhost:5174 (Ctrl+C stops everything)
+- Run app: `./run.sh` → http://localhost:5174 (Ctrl+C stops everything). `./run.sh --lite` = prebuilt frontend served by uvicorn on the same port, no Node at runtime (~70 MB RAM); rebuilds only when frontend files change.
 - Tests: `.venv/bin/pytest -q`
 - Frontend check: `cd frontend && npm run build` (tsc + vite build). Node needs NVM loaded in non-interactive shells: `. ~/.nvm/nvm.sh`
 - Experiments live in `backend/experiments/` (one module each, registered in `__init__.py`); a run's plots/summary/try-next travel inside its RunResult. Saved runs: `data/experiments/` (re-run server-side on save).

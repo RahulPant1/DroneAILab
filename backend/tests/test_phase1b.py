@@ -146,3 +146,23 @@ def test_websocket_streams_state_and_takes_off(client):
         ws.send_json({"cmd": "reset", "config": {**BASIC.to_dict(), "mass_kg": 99}})
         errors = [m for m in (ws.receive_json() for _ in range(5)) if m["type"] == "error"]
         assert errors and "mass_kg" in errors[0]["message"]
+
+
+def test_lite_mode_serves_the_page_without_hiding_the_api(tmp_path, monkeypatch):
+    monkeypatch.setenv("OLLAMA_URL", "http://127.0.0.1:9")
+    api._health_cache.update(at=-1e9, value=None)
+    (tmp_path / "index.html").write_text("<!doctype html><title>DroneLab</title>")
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "app.js").write_text("console.log(1)")
+    n_routes = len(api.app.router.routes)
+    assert api.mount_frontend(api.app, tmp_path)
+    try:
+        c = TestClient(api.app)
+        assert "DroneLab" in c.get("/").text
+        assert c.get("/assets/app.js").status_code == 200
+        assert c.get("/api/health").json()["sim"] == "ok"  # API still wins
+        with c.websocket_connect("/ws/sim") as ws:
+            assert ws.receive_json()["type"] == "config"
+    finally:
+        del api.app.router.routes[n_routes:]  # undo the mount for other tests
+    assert not api.mount_frontend(api.app, tmp_path / "missing")
