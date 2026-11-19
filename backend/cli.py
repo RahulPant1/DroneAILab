@@ -6,6 +6,7 @@ Examples:
   .venv/bin/python -m backend.cli hover --alt 2 --alt-kd 0             # no damping: more overshoot
   .venv/bin/python -m backend.cli freefall --height 20
   .venv/bin/python -m backend.cli presets
+  .venv/bin/python -m backend.cli mission --scenario box_canyon --planner potential
 """
 
 from __future__ import annotations
@@ -79,6 +80,8 @@ def fmt(value, unit="", digits=3) -> str:
         return "n/a"
     if isinstance(value, bool):
         return "yes" if value else "no"
+    if isinstance(value, int):
+        return str(value)
     return f"{value:.{digits}f}{unit}"
 
 
@@ -152,6 +155,65 @@ def cmd_freefall(args) -> int:
     return 0
 
 
+def ascii_map(result, width=64) -> str:
+    """Top-down text map: '#' obstacle, '.' planned route, '*' flown path, digits = waypoints, 'X' = crash/stuck."""
+    import math
+
+    mission = result.scenario["mission"]
+    route = result.scenario["planned_route"]
+    x, y = result.telemetry["x_m"], result.telemetry["y_m"]
+    xs = list(x) + [p[0] for p in route] + [v for o in mission["obstacles"] for v in (o["x_min"], o["x_max"])]
+    ys = list(y) + [p[1] for p in route] + [v for o in mission["obstacles"] for v in (o["y_min"], o["y_max"])]
+    x0, x1, y0, y1 = min(xs) - 1, max(xs) + 1, min(ys) - 1, max(ys) + 1
+    cell = (x1 - x0) / width
+    height = max(5, math.ceil((y1 - y0) / (cell * 2)))  # characters are ~2x taller than wide
+    grid = [[" "] * width for _ in range(height)]
+
+    def put(px, py, ch, keep=""):
+        c, r = int((px - x0) / cell), int((y1 - py) / (cell * 2))
+        if 0 <= c < width and 0 <= r < height and grid[r][c] not in keep:
+            grid[r][c] = ch
+
+    for o in mission["obstacles"]:
+        for r in range(height):
+            for c in range(width):
+                if o["x_min"] <= x0 + (c + 0.5) * cell <= o["x_max"] and o["y_min"] <= y1 - (r + 0.5) * cell * 2 <= o["y_max"]:
+                    grid[r][c] = "#"
+    for (ax, ay), (bx, by) in zip(route, route[1:]):
+        n = max(1, int(math.dist((ax, ay), (bx, by)) / (cell / 2)))
+        for i in range(n + 1):
+            put(ax + (bx - ax) * i / n, ay + (by - ay) * i / n, ".", keep="#")
+    for px, py in zip(x[::2], y[::2]):
+        put(px, py, "*", keep="#")
+    for i, (wx, wy) in enumerate(mission["waypoints"]):
+        put(wx, wy, "S" if i == 0 else str(i % 10))
+    for e in result.events:
+        if e["type"] in ("collision", "stuck"):
+            put(e["x_m"], e["y_m"], "X")
+    lines = ["  " + "".join(row) for row in grid]
+    return "\n".join(lines + [f"  (north is up; {width} columns = {x1 - x0:.0f} m)  S start, digits waypoints, . plan, * flown, # obstacle, X crash/stuck"])
+
+
+def cmd_mission(args) -> int:
+    from backend.experiments import get_experiment
+
+    params = {"scenario": args.scenario, "planner": args.planner, "cruise_speed_m_s": args.speed, "wind_speed_m_s": args.wind}
+    result = get_experiment("missions").run(params, args.seed)
+    m = result.metrics
+    print(f"Mission '{args.scenario}' with planner '{args.planner}' at {args.speed} m/s" + (f", crosswind {args.wind} m/s" if args.wind else "") + "\n")
+    print(ascii_map(result))
+    print()
+    for key, label in (("completed", "completed"), ("collisions", "collisions"), ("waypoints_reached", "waypoints reached"),
+                       ("mission_time_s", "mission time (s)"), ("planned_length_m", "planned length (m)"), ("flown_length_m", "flown length (m)"),
+                       ("min_clearance_m", "closest to obstacle (m)"), ("cross_track_max_m", "max off the plan (m)")):  # fmt: skip
+        print(f"  {label:<26} {fmt(m.get(key))}")
+    print("\nWhat happened:")
+    for line in result.summary:
+        print(f"  - {line}")
+    save_json(result, args.json)
+    return 0
+
+
 def cmd_presets(_args) -> int:
     for pid, cfg in PRESETS.items():
         print(f"{pid:<12} {cfg.name:<14} mass {cfg.mass_kg:4.2f} kg   T/W {cfg.thrust_to_weight:4.2f}   hover {cfg.hover_throttle_pct:5.1f} %")
@@ -183,6 +245,17 @@ def main(argv=None) -> int:
     ff.set_defaults(func=cmd_freefall)
 
     sub.add_parser("presets", help="list the drone presets").set_defaults(func=cmd_presets)
+
+    from backend.autonomy.mission import PLANNERS, SCENARIOS
+
+    mi = sub.add_parser("mission", help="fly a waypoint mission past obstacles (Phase 4)")
+    mi.add_argument("--scenario", default="around_block", choices=list(SCENARIOS))
+    mi.add_argument("--planner", default="astar", choices=list(PLANNERS))
+    mi.add_argument("--speed", type=float, default=1.5, help="cruise speed in m/s (0.5–3)")
+    mi.add_argument("--wind", type=float, default=0.0, help="crosswind toward north in m/s (0–8)")
+    mi.add_argument("--seed", type=int, default=0)
+    mi.add_argument("--json")
+    mi.set_defaults(func=cmd_mission)
 
     args = parser.parse_args(argv)
     try:

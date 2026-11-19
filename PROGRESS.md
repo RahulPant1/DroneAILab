@@ -163,4 +163,36 @@ Builds the frontend only when its files changed, then one uvicorn process serves
 the frontend port (5174). RAM: ~70 MB vs ~280–530 MB in dev mode. Verified: first start builds (2.5 s), later starts
 skip the build (0.6 s), a source change triggers a rebuild, live flight and Lab work, Ctrl+C leaves nothing running.
 
-## Next: Phase 4 (basic autonomy) only if the user asks.
+## Phase 4: Basic autonomy (done 2026-11-19)
+
+**Built:**
+- `backend/autonomy/`: `world.py` (box obstacles, drone footprint 0.3 m, clearance), `planner.py` (straight,
+  A* on a 0.2 m grid with a 0.4 m safety margin + line-of-sight shortcutting, readable "no path" errors),
+  `follower.py` (take-off → carrot along the route / potential field → land; collision, stuck and waypoint events),
+  `mission.py` (4 scenarios, custom-mission validation, metrics).
+- Mission metrics: completed, collisions, waypoints reached, mission time, planned vs flown length,
+  cross-track RMS/max, closest approach to obstacles and to each waypoint, A* cells and planning time.
+- Lab experiment 7 (scenario, planner, cruise speed, crosswind) with an SVG top-down map (planned vs flown,
+  keep-out zones, crash/stuck markers); it works in History compare (A/B paths), export, and the AI assistant.
+- API: `GET /api/missions/scenarios`, `POST /api/missions/run` (custom missions). CLI: `mission` with an ASCII map.
+- Lesson `docs/learn/09-exp-missions.md`. 30 new tests (120 total).
+
+**Results (each mission 0.2–0.6 s CPU):**
+| Scenario | Straight | Potential field | A* |
+|---|---|---|---|
+| Around the block | collision | completes (0.1 m clearance) | completes (0.39 m) |
+| Slalom | collision | stuck | completes |
+| Box canyon (U trap) | collision | stuck (local minimum) | completes |
+| Square patrol | completes | completes | completes |
+Faster flight cuts corners: waypoint miss 0.18 m at 0.8 m/s vs 0.55 m at 3 m/s. A 6 m/s crosswind reduces the slalom clearance 0.38 → 0.25 m.
+
+**Fixes found while testing:** stuck detection wasn't reset per waypoint; fast flights never "reached" a cut corner
+(waypoints now count as passed, and the miss is measured); the head-on "around the block" layout trapped the
+potential field (made the approach angled); a NaN metric in early-ending runs.
+
+**Not verified by me:** the look of the map in a real browser.
+
+**Limitations:** 2D planning at one cruise altitude (low boxes can be flown over, but there's no climbing over tall
+ones); the obstacles are known in advance (no sensing); missions are Lab runs, not shown in the live 3D Fly view.
+
+## Next: Roadmap items (PX4/Gazebo, ROS 2, vision, …) only with explicit approval.

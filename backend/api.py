@@ -14,6 +14,9 @@
   GET  /api/runs/{id}, DELETE /api/runs/{id}
   POST /api/runs/delete-old            -> {keep_newest: N}
 
+  GET  /api/missions/scenarios -> built-in mission courses
+  POST /api/missions/run       -> {mission: {waypoints, obstacles, cruise_alt_m, cruise_speed_m_s}, planner, wind_speed_m_s, seed}
+
   POST /api/assistant/ask      -> {question, context: [run refs], history} -> grounded answer
   POST /api/assistant/suggest  -> {context: [run refs], goal} -> validated suggestion (never auto-run)
   A run ref is {"saved_id": "..."} or {"experiment_id": "...", "params": {...}, "seed": 0, "label": "..."}.
@@ -39,6 +42,8 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from .ai import assistant as ai_assistant
+from .autonomy.mission import PLANNERS, SCENARIOS, MissionError, mission_from_dict, run_mission
+from .sim.environment import EnvConfig
 from .ai.ollama_client import AIError, AIOffline, OllamaClient
 from .experiments import EXPERIMENTS, ExperimentError, get_experiment
 from .sim.config import GAIN_LIMITS, LIMITS, PRESETS, ConfigError, DroneConfig, get_preset, validate_config
@@ -199,6 +204,39 @@ def delete_run(run_id: str) -> dict:
         return {"deleted": run_id}
     except StorageError as exc:
         raise HTTPException(404, str(exc)) from None
+
+
+# ---- Missions (Phase 4): custom courses; the built-in ones are Lab experiment 7 ----
+
+
+@app.get("/api/missions/scenarios")
+def mission_scenarios() -> dict:
+    return {
+        "planners": list(PLANNERS),
+        "scenarios": {
+            k: {"title": v["title"], "waypoints": [list(p) for p in v["waypoints"]], "obstacles": [b.to_dict() for b in v["obstacles"]]}
+            for k, v in SCENARIOS.items()
+        },
+    }
+
+
+@app.post("/api/missions/run")
+def run_custom_mission(body: dict) -> dict:
+    try:
+        mission = mission_from_dict(body.get("mission"))
+        wind = float(body.get("wind_speed_m_s") or 0.0)
+        if not 0 <= wind <= 15:
+            raise MissionError("wind_speed_m_s must be between 0 and 15.")
+        env = EnvConfig(wind_speed_m_s=wind, wind_direction_deg=float(body.get("wind_direction_deg") or 90.0)) if wind else None
+        if not _heavy_work.acquire(timeout=10):
+            raise HTTPException(429, "Another run is still going. Try again in a moment.")
+        try:
+            result, _, _ = run_mission(mission, str(body.get("planner", "astar")), env=env, seed=int(body.get("seed") or 0))
+        finally:
+            _heavy_work.release()
+        return result.to_dict()
+    except (MissionError, ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from None
 
 
 # ---- Assistant (Phase 3) ----

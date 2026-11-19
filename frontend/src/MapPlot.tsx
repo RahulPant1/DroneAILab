@@ -1,0 +1,105 @@
+// Top-down mission map (SVG, metres, north up): obstacles, keep-out zones, planned route, flown path(s).
+
+import { useMemo, type ReactElement } from 'react';
+import type { ChartRun } from './Chart';
+import type { MapExtra, PlotDef } from './lab';
+
+const RUN_COLORS = ['#4cc9f0', '#ff6bd6'];
+
+export default function MapPlot({ plot, runs }: { plot: PlotDef; runs: ChartRun[] }) {
+  const extra = plot.extra as MapExtra;
+  const xCh = plot.series[0]?.channel ?? 'x_m';
+  const yCh = plot.series[1]?.channel ?? 'y_m';
+
+  const paths = useMemo(
+    () =>
+      runs.map((r) => {
+        const xs = r.result.telemetry[xCh] ?? [];
+        const ys = r.result.telemetry[yCh] ?? [];
+        const pts: [number, number][] = [];
+        for (let i = 0; i < xs.length; i += 2) pts.push([xs[i], ys[i]]);
+        return pts;
+      }),
+    [runs, xCh, yCh],
+  );
+
+  // Bounds that fit everything, plus a 1 m border.
+  const b = useMemo(() => {
+    const xs: number[] = [], ys: number[] = [];
+    paths.flat().forEach(([x, y]) => { xs.push(x); ys.push(y); });
+    extra.planned_route.forEach(([x, y]) => { xs.push(x); ys.push(y); });
+    extra.waypoints.forEach(([x, y]) => { xs.push(x); ys.push(y); });
+    extra.obstacles.forEach((o) => { xs.push(o.x_min, o.x_max); ys.push(o.y_min, o.y_max); });
+    const x0 = Math.min(...xs) - 1, x1 = Math.max(...xs) + 1, y0 = Math.min(...ys) - 1, y1 = Math.max(...ys) + 1;
+    return { x0, x1, y0, y1, w: x1 - x0, h: y1 - y0 };
+  }, [paths, extra]);
+
+  const span = Math.max(b.w, b.h);
+  const gridStep = span > 30 ? 5 : span > 14 ? 2 : 1;
+  const font = span * 0.035;
+  const pt = (x: number, y: number) => `${x},${-y}`; // SVG y grows downward, so flip north up
+  const gridLines: ReactElement[] = [];
+  for (let gx = Math.ceil(b.x0 / gridStep) * gridStep; gx <= b.x1; gx += gridStep)
+    gridLines.push(<line key={`x${gx}`} x1={gx} x2={gx} y1={-b.y1} y2={-b.y0} className={gx === 0 ? 'map-axis' : 'map-grid'} />);
+  for (let gy = Math.ceil(b.y0 / gridStep) * gridStep; gy <= b.y1; gy += gridStep)
+    gridLines.push(<line key={`y${gy}`} y1={-gy} y2={-gy} x1={b.x0} x2={b.x1} className={gy === 0 ? 'map-axis' : 'map-grid'} />);
+  const z = extra.safety_zone_m;
+
+  return (
+    <figure className="chart map-chart">
+      <figcaption>
+        <b>{plot.title}</b>
+        <span className="how">{plot.how_to_read}</span>
+      </figcaption>
+      <svg className="map" viewBox={`${b.x0} ${-b.y1} ${b.w} ${b.h}`} preserveAspectRatio="xMidYMid meet" role="img"
+        aria-label="Top-down map of the mission">
+        {gridLines}
+        {extra.obstacles.map((o, i) => (
+          <g key={i}>
+            <rect x={o.x_min - z} y={-(o.y_max + z)} width={o.x_max - o.x_min + 2 * z} height={o.y_max - o.y_min + 2 * z}
+              rx={z} className="map-zone" />
+            <rect x={o.x_min} y={-o.y_max} width={o.x_max - o.x_min} height={o.y_max - o.y_min} className="map-obstacle">
+              <title>Obstacle, {o.height_m} m tall</title>
+            </rect>
+          </g>
+        ))}
+        <polyline points={extra.planned_route.map(([x, y]) => pt(x, y)).join(' ')} className="map-plan" />
+        {paths.map((p, i) => (
+          <polyline key={i} points={p.map(([x, y]) => pt(x, y)).join(' ')} className="map-flown"
+            style={{ stroke: RUN_COLORS[i % 2], strokeDasharray: i === 1 ? '5 4' : undefined }} />
+        ))}
+        {extra.waypoints.map(([x, y], i) =>
+          i === 0 ? (
+            <polygon key={i} points={`${x},${-y - font * 0.6} ${x - font * 0.5},${-y + font * 0.35} ${x + font * 0.5},${-y + font * 0.35}`} className="map-start" />
+          ) : (
+            <g key={i}>
+              <circle cx={x} cy={-y} r={font * 0.55} className="map-wp" />
+              <text x={x} y={-y + font * 0.35} fontSize={font} className="map-wp-label">{i}</text>
+            </g>
+          ),
+        )}
+        {runs.map((r, ri) =>
+          r.result.events
+            .filter((e) => (e.type === 'collision' || e.type === 'stuck') && e.x_m !== undefined)
+            .map((e, i) => (
+              <text key={`${ri}-${i}`} x={e.x_m} y={-(e.y_m ?? 0) + font * 0.4} fontSize={font * 1.4}
+                className={e.type === 'collision' ? 'map-crash' : 'map-stuck'}>
+                {e.type === 'collision' ? '✕' : '!'}
+                <title>{(runs.length > 1 ? `${r.name}: ` : '') + e.message}</title>
+              </text>
+            )),
+        )}
+      </svg>
+      <div className="map-legend small">
+        <span><i className="sw plan" /> planned route</span>
+        {runs.map((r, i) => (
+          <span key={i}><i className="sw" style={{ background: RUN_COLORS[i % 2] }} /> {runs.length > 1 ? `${r.name}: flown` : 'flown path'}</span>
+        ))}
+        <span><i className="sw obstacle" /> obstacle</span>
+        <span><i className="sw zone" /> keep-out zone</span>
+        <span className="map-crash">✕</span> crash <span className="map-stuck">!</span> stuck
+        <span className="muted">grid: {gridStep} m · north ↑ · east →</span>
+      </div>
+    </figure>
+  );
+}

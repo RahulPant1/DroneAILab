@@ -43,6 +43,23 @@ export interface PlotDef {
   y_label: string;
   how_to_read: string;
   series: SeriesDef[];
+  kind?: 'time' | 'map';
+  extra?: MapExtra;
+}
+
+export interface ObstacleDef {
+  x_min: number;
+  x_max: number;
+  y_min: number;
+  y_max: number;
+  height_m: number;
+}
+
+export interface MapExtra {
+  obstacles: ObstacleDef[];
+  waypoints: [number, number][];
+  planned_route: [number, number][];
+  safety_zone_m: number;
 }
 
 export type Params = Record<string, number | string>;
@@ -55,7 +72,7 @@ export interface RunResult {
   scenario: { experiment_id?: string; params?: Params; duration_s?: number };
   telemetry: Record<string, number[]>;
   metrics: Record<string, number | boolean | string | null>;
-  events: { t_s: number; type: string; message: string }[];
+  events: { t_s: number; type: string; message: string; x_m?: number; y_m?: number }[];
   summary: string[];
   try_next: { text: string; params: Params }[];
   plots: PlotDef[];

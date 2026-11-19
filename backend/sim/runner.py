@@ -252,17 +252,25 @@ def run_headless(
     scenario: dict | None = None,
     env: EnvConfig | None = None,
     sensors: SensorConfig | None = None,
+    stop_when: Callable[[], bool] | None = None,
 ) -> RunResult:
     """Run a whole flight as fast as possible and return a RunResult.
 
-    `setpoint` is either fixed, or a function of time (seconds) returning a Setpoint.
+    `setpoint` is either fixed, a function of time (seconds) returning a Setpoint, or an object with
+    `setpoint_for(state, time_s)` (e.g. a mission follower that needs to see where the drone is).
+    `stop_when` (checked at 50 Hz) can end the run early, e.g. once a mission has landed.
     Telemetry is recorded at 50 Hz; wind and estimate channels are added when those are on.
     """
     if not 0 < duration_s <= MAX_DURATION_S:
         raise ValueError(f"duration_s must be between 0 and {MAX_DURATION_S} s, got {duration_s}.")
     sim = LightweightSim()
     state = sim.reset(config, seed, initial_state, env, sensors)
-    setpoint_at = setpoint if callable(setpoint) else (lambda _t: setpoint)
+    if hasattr(setpoint, "setpoint_for"):
+        setpoint_at = lambda t: setpoint.setpoint_for(state, t)  # noqa: E731
+    elif callable(setpoint):
+        setpoint_at = setpoint
+    else:
+        setpoint_at = lambda _t: setpoint  # noqa: E731
 
     channels = list(TELEMETRY_CHANNELS)
     if sim.wind:
@@ -319,6 +327,8 @@ def run_headless(
             )
         if i % TELEMETRY_EVERY_N_STEPS == 0:
             record(sp)
+            if stop_when is not None and stop_when():
+                break
 
     # Round to 5 decimals (10 µm, 0.0006°): plenty for plots, and keeps saved runs small.
     tel = {name: [round(v, TELEMETRY_DECIMALS) for v in values] for name, values in tel.items()}
@@ -333,7 +343,7 @@ def run_headless(
         "left_ground": any(e["type"] == "liftoff" for e in events),
         "max_alt_m": float(np.max(tel["z_m"])),
         "horizontal_drift_m": horizontal_drift_m(np.asarray(tel["x_m"]), np.asarray(tel["y_m"])),
-        "mean_motor_pct_second_half": mean_motor_pct(t, motors, duration_s / 2.0),
+        "mean_motor_pct_second_half": mean_motor_pct(t, motors, float(t[-1]) / 2.0),  # actual length (runs can stop early)
         "rotor_energy_j": sim.rotor_energy_j,
     }
     return RunResult(

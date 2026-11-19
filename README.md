@@ -27,6 +27,11 @@ each with sliders, plots, a "what happened" explanation and "try next" ideas. Sa
 **History** tab to compare two of them on overlaid plots, or export as CSV/JSON.
 Saved runs live in `data/experiments/` (max 100; History has "Delete old runs").
 
+**Missions (Lab experiment 7):** fly a waypoint mission past box obstacles and compare three ways of
+avoiding them: straight lines (crash), a potential field (reactive, can get stuck), and A* path planning.
+A top-down map shows the planned vs flown path. In the terminal:
+`.venv/bin/python -m backend.cli mission --scenario box_canyon --planner potential`.
+
 **💬 Assistant** (header button, any tab): ask a local model (Ollama, model from `.env`) about the run
 you're looking at. It sees only a short summary (settings, metrics, events), never raw telemetry, and
 labels each claim **Measured** (from your data) or **Hypothesis** (its reasoning). Numbers it writes that

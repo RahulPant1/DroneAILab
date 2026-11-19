@@ -66,6 +66,8 @@ class Plot:
     y_label: str  # includes the unit, e.g. "altitude (m)"
     how_to_read: str
     series: tuple[Series, ...]
+    kind: str = "time"  # "time" = signals vs time; "map" = top-down x/y view (series[0] = x, series[1] = y)
+    extra: dict = field(default_factory=dict)  # map data: obstacles, waypoints, planned path
 
 
 @dataclass(frozen=True)
