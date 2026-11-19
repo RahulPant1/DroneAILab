@@ -29,6 +29,7 @@ DISARM_AFTER_GROUND_S = 0.3
 NUDGE_SPEED_M_S = 1.5
 NUDGE_CLIMB_M_S = 0.8
 NUDGE_YAW_RAD_S = math.radians(60.0)
+FAILSAFE_TILT_RAD = math.radians(12.0)  # attitude mode: a full W/A/S/D press tilts this much
 MAX_LEAD_M = 2.0  # the target can run at most this far ahead of the drone
 MIN_FLY_ALT_M = 0.3
 MAX_FLY_ALT_M = 50.0
@@ -56,6 +57,7 @@ class Pilot:
         self.sp = Setpoint(armed=False, position_control=True)
         self.sticks = Sticks()
         self.message = "Ready. Press Take off."
+        self.attitude_mode = False  # GPS-loss failsafe: W/A/S/D tilt the drone; the x/y target stays frozen
         self._ground_time_s = 0.0
 
     # ---- Button commands (return a short message for the UI) ----
@@ -134,20 +136,28 @@ class Pilot:
         if s.forward == 0 and s.left == 0 and s.up == 0 and s.yaw == 0:
             return
         yaw = self.sp.yaw_rad
-        fwd, left = s.forward * NUDGE_SPEED_M_S * dt_s, s.left * NUDGE_SPEED_M_S * dt_s
-        x = self.sp.x_m + math.cos(yaw) * fwd - math.sin(yaw) * left
-        y = self.sp.y_m + math.sin(yaw) * fwd + math.cos(yaw) * left
-        # Keep the target on a short leash so it can't run away from the drone.
-        dx, dy = x - state.pos_m[0], y - state.pos_m[1]
-        lead = math.hypot(dx, dy)
-        if lead > MAX_LEAD_M:
-            x, y = state.pos_m[0] + dx * MAX_LEAD_M / lead, state.pos_m[1] + dy * MAX_LEAD_M / lead
-        self.sp.x_m = max(-MAX_RANGE_M, min(MAX_RANGE_M, x))
-        self.sp.y_m = max(-MAX_RANGE_M, min(MAX_RANGE_M, y))
+        # Attitude mode (GPS-loss failsafe): the x/y target stays frozen, so that when GPS returns the drone goes
+        # back to it. W/A/S/D tilt the drone instead (see tilt_from_sticks); only height and heading change here.
+        if not self.attitude_mode:
+            fwd, left = s.forward * NUDGE_SPEED_M_S * dt_s, s.left * NUDGE_SPEED_M_S * dt_s
+            x = self.sp.x_m + math.cos(yaw) * fwd - math.sin(yaw) * left
+            y = self.sp.y_m + math.sin(yaw) * fwd + math.cos(yaw) * left
+            # Keep the target on a short leash so it can't run away from the drone.
+            dx, dy = x - state.pos_m[0], y - state.pos_m[1]
+            lead = math.hypot(dx, dy)
+            if lead > MAX_LEAD_M:
+                x, y = state.pos_m[0] + dx * MAX_LEAD_M / lead, state.pos_m[1] + dy * MAX_LEAD_M / lead
+            self.sp.x_m = max(-MAX_RANGE_M, min(MAX_RANGE_M, x))
+            self.sp.y_m = max(-MAX_RANGE_M, min(MAX_RANGE_M, y))
         alt = self.sp.alt_m + s.up * NUDGE_CLIMB_M_S * dt_s
         alt = min(alt, state.pos_m[2] + MAX_LEAD_M) if s.up > 0 else max(alt, state.pos_m[2] - MAX_LEAD_M)
         self.sp.alt_m = max(MIN_FLY_ALT_M, min(MAX_FLY_ALT_M, alt))
         self.sp.yaw_rad = math.remainder(self.sp.yaw_rad + s.yaw * NUDGE_YAW_RAD_S * dt_s, 2 * math.pi)
+
+    def tilt_from_sticks(self) -> tuple[float, float]:
+        """Attitude mode: (roll, pitch) from the keys. W = nose down = go forward (+pitch);
+        A = left side down = go left (-roll). Let go and the drone levels out, but keeps coasting."""
+        return -self.sticks.left * FAILSAFE_TILT_RAD, self.sticks.forward * FAILSAFE_TILT_RAD
 
     def _say(self, message: str) -> str:
         self.message = message

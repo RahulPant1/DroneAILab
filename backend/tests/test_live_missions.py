@@ -397,3 +397,60 @@ def test_gps_outage_does_nothing_with_perfect_sensors():
     rt = MissionSim(BASIC)
     assert "only matters with sensor noise on" in rt.command("gps", outage=True)
     assert rt.gps_lost_s() == 0 and "Taking off" in rt.command("takeoff")
+
+
+# ---- failsafe: W/A/S/D tilt the drone (attitude mode) ----
+
+
+def press(rt: MissionSim, seconds: float = 1.5, coast_s: float = 2.0, **sticks) -> "np.ndarray":
+    import numpy as np
+
+    p0 = rt.state.pos_m[:2].copy()
+    rt.command("sticks", **sticks)
+    for _ in range(int(seconds / 0.05)):
+        rt.advance(0.05)
+    rt.command("sticks")
+    for _ in range(int(coast_s / 0.05)):
+        rt.advance(0.05)
+    return np.asarray(rt.state.pos_m[:2] - p0)
+
+
+@pytest.mark.parametrize("yaw_deg", [0.0, 90.0])
+def test_in_failsafe_w_and_a_tilt_the_drone_forward_and_left_for_its_heading(yaw_deg):
+    import math
+
+    import numpy as np
+
+    rt, _ = outage_drift(failsafe=True, seconds=1.5)
+    rt.pilot.sp.yaw_rad = math.radians(yaw_deg)  # face east (0) or north (90)
+    for _ in range(60):
+        rt.advance(0.05)
+    target = (rt.pilot.sp.x_m, rt.pilot.sp.y_m)
+    fwd = np.array([math.cos(math.radians(yaw_deg)), math.sin(math.radians(yaw_deg))])
+    left = np.array([-fwd[1], fwd[0]])
+    moved = press(rt, forward=1.0)
+    assert moved @ fwd > 2.0  # W: nose down, forward
+    rt2, _ = outage_drift(failsafe=True, seconds=1.5)
+    rt2.pilot.sp.yaw_rad = math.radians(yaw_deg)
+    for _ in range(60):
+        rt2.advance(0.05)
+    assert press(rt2, left=1.0) @ left > 2.0  # A: left side down, left
+    assert (rt.pilot.sp.x_m, rt.pilot.sp.y_m) == target  # the position target stays frozen
+
+
+def test_after_steering_in_failsafe_gps_return_brings_it_back_to_the_frozen_target():
+    import numpy as np
+
+    rt, _ = outage_drift(failsafe=True, seconds=1.5)
+    target = np.array([rt.pilot.sp.x_m, rt.pilot.sp.y_m])
+    press(rt, forward=1.0)
+    press(rt, left=1.0)
+    rt.command("sticks", up=1.0)  # R still climbs in failsafe
+    for _ in range(20):
+        rt.advance(0.05)
+    rt.command("sticks")
+    assert rt.pilot.sp.alt_m > 2.5 and np.hypot(*(rt.state.pos_m[:2] - target)) > 3.0
+    rt.command("gps", outage=False)
+    for _ in range(300):
+        rt.advance(0.05)
+    assert np.hypot(*(rt.state.pos_m[:2] - target)) < 1.0

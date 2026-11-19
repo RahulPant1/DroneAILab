@@ -88,9 +88,15 @@ export default function Controls({ follow, setFollow }: { follow: boolean; setFo
         <button disabled={offline} onClick={() => sim.send('reset')} title="Put the drone back on the ground at the start">↺ Reset</button>
       </div>
       <div className="row small">
-        <span className="keys">
-          <kbd>W</kbd><kbd>S</kbd> forward/back · <kbd>A</kbd><kbd>D</kbd> left/right · <kbd>R</kbd><kbd>F</kbd> up/down · <kbd>Q</kbd><kbd>E</kbd> turn
-        </span>
+        {s?.failsafe ? (
+          <span className="keys gps-lost" title="GPS-loss failsafe: no position hold. The keys tilt the drone directly; it keeps coasting until you tilt the other way.">
+            Failsafe: <kbd>W</kbd><kbd>S</kbd><kbd>A</kbd><kbd>D</kbd> <b>tilt</b> the drone (it coasts: counter-steer to stop) · <kbd>R</kbd><kbd>F</kbd> up/down · <kbd>Q</kbd><kbd>E</kbd> turn
+          </span>
+        ) : (
+          <span className="keys">
+            <kbd>W</kbd><kbd>S</kbd> forward/back · <kbd>A</kbd><kbd>D</kbd> left/right · <kbd>R</kbd><kbd>F</kbd> up/down · <kbd>Q</kbd><kbd>E</kbd> turn
+          </span>
+        )}
         <span className="spacer" />
         <label className="inline" title="Fly to a point (metres east, north, up)">
           Fly to x <input type="number" step={0.5} value={target.x} onChange={(e) => setTarget({ ...target, x: Number(e.target.value) })} />

@@ -157,6 +157,7 @@ class MissionSim(RealtimeSim):
             if self.follower.phase in ("landed", "crashed", "stuck"):
                 self._end_mission(s)
             return sp
+        self.pilot.attitude_mode = self.failsafe_active()
         sp = self.apply_failsafe(self.pilot.update(self.sim.estimate, dt_s, s))  # estimate decides; ground contact from truth
         if self.mission and sp.armed and clearance_m(self.mission.obstacles, *(float(v) for v in s.pos_m)) < 0:
             sp.armed = False

@@ -57,3 +57,6 @@ That's why real drones have a **failsafe**: after 1 s without GPS, ours stops tr
 level and keeps its height (the altimeter still works). It still drifts a few metres, but doesn't run away.
 Untick **failsafe** to see the difference, then untick the outage and watch it fly home. A mission is aborted on
 GPS loss, and take-off is refused without a GPS fix.
+In failsafe, **W/A/S/D tilt the drone** instead of moving a target, like flying a real drone in "altitude mode".
+Tilt forward and it speeds up forward; let go and it levels out but **keeps coasting**. To stop, tilt the other way
+for a moment. That's exactly what makes flying without GPS hard. When GPS returns, it flies back to where it was.

@@ -196,6 +196,7 @@ class RealtimeSim:
 
     def next_setpoint(self, dt_s: float) -> Setpoint:
         """What the controller should aim for during the next physics step (the pilot decides)."""
+        self.pilot.attitude_mode = self.failsafe_active()
         return self.apply_failsafe(self.pilot.update(self.sim.estimate, dt_s, self.state))  # decides on the estimate
 
     def gps_lost_s(self) -> float:
@@ -210,15 +211,19 @@ class RealtimeSim:
     def apply_failsafe(self, sp: Setpoint) -> Setpoint:
         """GPS-loss failsafe ('altitude mode'): without GPS the position estimate drifts away fast, so stop
         chasing it. Hold the wings level and keep the height (the altimeter still works); the drone then only
-        drifts with its leftover speed, small tilt errors and the wind. When GPS returns, position hold resumes."""
+        drifts with its leftover speed, small tilt errors and the wind. W/A/S/D now tilt the drone directly (like
+        a manual pilot). When GPS returns, position hold resumes at the last target."""
         on = self.failsafe_active() and sp.armed
         if on != self._failsafe_was_on:
             self._failsafe_was_on = on
             self.notices.append(
-                "GPS-loss failsafe: holding level and altitude; position is NOT held (the drone may drift)."
+                "GPS-loss failsafe: holding level and altitude; position is NOT held. W/A/S/D now tilt the drone."
                 if on else "Failsafe over: back to holding position."
             )
-        return replace(sp, position_control=False, roll_rad=0.0, pitch_rad=0.0) if on else sp
+        if not on:
+            return sp
+        roll, pitch = self.pilot.tilt_from_sticks()
+        return replace(sp, position_control=False, roll_rad=roll, pitch_rad=pitch)
 
     @property
     def state(self) -> State:

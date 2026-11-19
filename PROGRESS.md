@@ -279,4 +279,13 @@ ones); the obstacles are known in advance (no sensing).
   "FAILSAFE", mode shows "failsafe". State frames carry `gps_outage`, `gps_lost_s`, `failsafe`.
 - Tests: 155 pass (+4).
 
+## Extra: W/A/S/D tilt the drone in failsafe (done 2026-11-19)
+- In the GPS-loss failsafe (attitude mode), W/S = pitch ±12°, A/D = roll ∓12° (`Pilot.tilt_from_sticks`); let go
+  and it levels out but keeps coasting, so you counter-steer to stop. R/F and Q/E work as before.
+- The x/y target is frozen in failsafe (the 2 m stick leash used to drag it along with the drifting estimate), so
+  when GPS returns the drone flies back to it (checked: 27 m away -> 0.37 m after 15 s).
+- Directions checked at headings 0° and 90° (W = nose direction, A = its left). The keys hint under the 3D view
+  switches to the tilt meaning in failsafe.
+- Tests: 158 pass (+3).
+
 ## Next: Roadmap items (PX4/Gazebo, ROS 2, vision, …) only with explicit approval.
