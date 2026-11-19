@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+.env
+data/experiments/*
+!data/experiments/.gitkeep
+data/assistant_log.jsonl
+.claude/settings.local.json

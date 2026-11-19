@@ -1,0 +1,10 @@
+# DroneLab backend deps (approved list, PRD §1a). Pinned 2026-11-19.
+# Install: uv pip install --python .venv/bin/python -r backend/requirements.txt
+fastapi==0.165.0
+uvicorn==0.54.0
+websockets==17.4
+numpy==2.5.5
+pydantic==2.14.3
+httpx==0.28.1
+python-dotenv==1.2.4
+pytest==9.2.0

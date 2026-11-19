@@ -1,0 +1,48 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(apt:*)",
+      "Bash(apt-get:*)",
+      "Bash(ollama pull:*)",
+      "Bash(ollama run:*)",
+      "Bash(ollama rm:*)",
+      "Bash(ollama create:*)",
+      "Bash(ollama cp:*)",
+      "Bash(ollama push:*)",
+      "Bash(ollama serve:*)",
+      "Bash(ollama stop:*)",
+      "Bash(systemctl:*)",
+      "Bash(npm install -g:*)",
+      "Bash(npm i -g:*)",
+      "Bash(nvm alias:*)",
+      "Bash(conda install:*)",
+      "Bash(conda remove:*)",
+      "Bash(conda env remove:*)",
+      "Bash(pip install --break-system-packages:*)",
+      "Bash(git config --global:*)",
+      "Bash(pkill:*)",
+      "Bash(killall:*)",
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)",
+      "Edit(~/.bashrc)",
+      "Edit(~/.profile)",
+      "Edit(~/.ollama/**)",
+      "Edit(~/miniconda3/**)",
+      "Edit(~/.nvm/**)",
+      "Edit(//etc/**)",
+      "Edit(//usr/**)",
+      "Edit(//mnt/c/**)"
+    ],
+    "allow": [
+      "Bash(ollama list)",
+      "Bash(ollama ps)",
+      "Bash(ollama show:*)",
+      "Bash(nvidia-smi)",
+      "Bash(free -h)",
+      "Bash(df -h:*)",
+      "Bash(du -sh:*)",
+      "Bash(ss -ltnp)"
+    ]
+  }
+}
