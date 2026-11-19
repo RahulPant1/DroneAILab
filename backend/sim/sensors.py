@@ -100,6 +100,7 @@ class Sensors:
         self.gyro_bias = np.array([math.radians(cfg.gyro_bias_deg_s), 0.0, 0.0])
         self.readings = Readings()
         self.step_count = 0
+        self.gps_ok = True  # False = GPS outage: no fixes arrive (live view toggle)
 
     def sample(self, truth: State, accel_world_m_s2: np.ndarray) -> Readings:
         """Take whichever readings are due this physics step (each sensor has its own rate)."""
@@ -109,7 +110,7 @@ class Sensors:
         r.new_imu = n % IMU_EVERY_N_STEPS == 0
         r.new_baro = n % BARO_EVERY_N_STEPS == 0
         r.new_compass = n % COMPASS_EVERY_N_STEPS == 0
-        r.new_gps = n % GPS_EVERY_N_STEPS == 0
+        r.new_gps = self.gps_ok and n % GPS_EVERY_N_STEPS == 0
 
         if r.new_imu:
             r.gyro_rad_s = truth.rate_rad_s + self.gyro_bias + self.gyro_sigma * self.rng.standard_normal(3)

@@ -266,4 +266,17 @@ ones); the obstacles are known in advance (no sensing).
   with GPS noise, 0/5 without. GPS noise is most of the sideways drift.
 - Tests: 151 pass (+2).
 
+## Extra: GPS outage toggle + GPS-loss failsafe (done 2026-11-19)
+- WS `{"cmd": "gps", "outage": bool, "failsafe": bool}` (live view, matters only with sensor noise on). Outage =
+  no fixes (`Sensors.gps_ok`); position comes from dead reckoning on the motion sensors. Kept across resets.
+- Failsafe (default on): GPS lost ≥ 1 s while airborne -> hold level + altitude (attitude mode, no position hold),
+  like PX4's altitude-mode fallback. A running mission is aborted. When GPS returns, position hold resumes.
+  On the ground with no GPS, take-off is refused ("No GPS fix").
+- Measured, hover at 2 m, 1x noise, 30 s outage (3 seeds): no failsafe 2.8–29 m true drift (grows with t²);
+  failsafe 2.5–4.3 m. At 3x: 35–100 m vs 6.6–18 m. The failsafe still drifts because "level" is level by the
+  estimate (small tilt errors). After GPS returns the drone flies back within ~10 s.
+- UI: 📵 GPS outage + failsafe checkboxes, Take off shows "📵 No GPS fix", Telemetry "GPS LOST n s" /
+  "FAILSAFE", mode shows "failsafe". State frames carry `gps_outage`, `gps_lost_s`, `failsafe`.
+- Tests: 155 pass (+4).
+
 ## Next: Roadmap items (PX4/Gazebo, ROS 2, vision, …) only with explicit approval.

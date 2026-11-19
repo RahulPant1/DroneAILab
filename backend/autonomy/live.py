@@ -137,6 +137,9 @@ class MissionSim(RealtimeSim):
         if self.follower and self.gps_settle_left_s() > 0:
             self.follower._t_last = s.time_s  # the autopilot's clock starts once it may take off
             return Setpoint(armed=False, position_control=True, x_m=float(s.pos_m[0]), y_m=float(s.pos_m[1]))
+        if self.follower and self.failsafe_active():
+            self._take_over()  # a mission can't navigate without GPS: abort, the failsafe holds the drone
+            self.notices.append("Mission aborted: GPS lost.")
         if self.follower:
             sp = self.follower.setpoint_for(self.sim.estimate, s.time_s, s)  # navigates on the estimate
             for ev in self.follower.events[self._events_seen:]:
@@ -154,7 +157,7 @@ class MissionSim(RealtimeSim):
             if self.follower.phase in ("landed", "crashed", "stuck"):
                 self._end_mission(s)
             return sp
-        sp = self.pilot.update(self.sim.estimate, dt_s, s)  # decides on the estimate; ground contact from truth
+        sp = self.apply_failsafe(self.pilot.update(self.sim.estimate, dt_s, s))  # estimate decides; ground contact from truth
         if self.mission and sp.armed and clearance_m(self.mission.obstacles, *(float(v) for v in s.pos_m)) < 0:
             sp.armed = False
             self.pilot.mode = "idle"

@@ -103,7 +103,7 @@ main.scroll { overflow-y: auto; }
 /* ---- Telemetry ---- */
 .mode-line { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .mode { text-transform: uppercase; font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--panel-2); }
-.mode-hover { color: var(--good); } .mode-mission { color: var(--accent); } .mode-takeoff, .mode-land { color: var(--warn); } .mode-idle { color: var(--muted); }
+.mode-hover { color: var(--good); } .mode-mission { color: var(--accent); } .mode-failsafe { color: var(--bad); } .mode-takeoff, .mode-land { color: var(--warn); } .mode-idle { color: var(--muted); }
 table.nums { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; margin-top: 6px; }
 table.nums th, table.nums td { padding: 3px 4px; text-align: right; font-weight: normal; }
 table.nums thead th { color: var(--muted); font-size: 12px; }
@@ -243,3 +243,4 @@ table.diff td:nth-child(3) { color: var(--muted); text-align: center; }
 .course-legend { margin: 4px 0 0; }
 .wind-bar input[type=range] { width: 90px; vertical-align: middle; }
 .wind-num { display: inline-block; min-width: 2.6em; text-align: right; }
+.gps-lost { color: var(--bad); }

@@ -76,7 +76,7 @@ export default function Controls({ follow, setFollow }: { follow: boolean; setFo
         <button className="primary big" disabled={offline || flying || s?.mode === 'land' || settling}
           onClick={() => sim.send('takeoff', { alt_m: alt })}
           title={settling ? 'Pre-arm check: the drone is averaging GPS fixes so it knows where it is before flying' : undefined}>
-          {settling ? `🛰 GPS settling ${s!.gps_settle_left_s.toFixed(1)} s` : '🛫 Take off'}
+          {settling ? (s!.gps_outage ? '📵 No GPS fix' : `🛰 GPS settling ${s!.gps_settle_left_s.toFixed(1)} s`) : '🛫 Take off'}
         </button>
         <label className="inline" title="Take-off altitude">
           to <input type="number" min={0.3} max={50} step={0.5} value={alt} onChange={(e) => setAlt(Number(e.target.value))} /> m
@@ -212,14 +212,18 @@ function WindBar({ status }: { status: string }) {
 
 /** Noisy sensors on/off. With them on, the controller flies on its ESTIMATE (the ghost drone in 3D). */
 function SensorBar({ status }: { status: string }) {
-  const [sensors, setSensors] = useState({ on: false, level: 1, gps: true });
+  const [sensors, setSensors] = useState({ on: false, level: 1, gps: true, outage: false, failsafe: true });
   const change = (patch: Partial<typeof sensors>) => {
     const v = { ...sensors, ...patch };
     setSensors(v);
-    sim.send('sensors', { enabled: v.on, noise_scale: v.level, gps_noise: v.gps });
+    if (v.on !== sensors.on || v.level !== sensors.level || v.gps !== sensors.gps)
+      sim.send('sensors', { enabled: v.on, noise_scale: v.level, gps_noise: v.gps });
+    if (v.outage !== sensors.outage || v.failsafe !== sensors.failsafe || v.on !== sensors.on)
+      sim.send('gps', { outage: v.outage, failsafe: v.failsafe });
   };
   useEffect(() => {
     if (status === 'open' && sensors.on) sim.send('sensors', { enabled: true, noise_scale: sensors.level, gps_noise: sensors.gps });
+    if (status === 'open' && sensors.outage) sim.send('gps', { outage: true, failsafe: sensors.failsafe });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
   const off = status !== 'open';
@@ -236,6 +240,12 @@ function SensorBar({ status }: { status: string }) {
       </label>
       <label className="inline" title="Untick for a perfect GPS while the other sensors (gyro, accelerometer, altimeter, compass) stay noisy. Shows how much of the drift comes from the GPS.">
         <input type="checkbox" checked={sensors.gps} disabled={off || !sensors.on} onChange={(e) => change({ gps: e.target.checked })} /> 🛰 GPS noise
+      </label>
+      <label className="inline" title="No GPS fixes at all (jamming, indoors, under a bridge). Position then comes from the motion sensors only, and drifts away fast.">
+        <input type="checkbox" checked={sensors.outage} disabled={off || !sensors.on} onChange={(e) => change({ outage: e.target.checked })} /> 📵 GPS outage
+      </label>
+      <label className="inline" title="On GPS loss: after 1 s, stop trusting the drifting position. Hold level and altitude instead (missions are aborted). Untick to see what happens if the drone keeps trusting it.">
+        <input type="checkbox" checked={sensors.failsafe} disabled={off || !sensors.on} onChange={(e) => change({ failsafe: e.target.checked })} /> failsafe
       </label>
       {sensors.on && <span className="muted">Ghost outline = where the drone <i>thinks</i> it is. The controller steers the ghost, not the real drone. On the ground it averages GPS for 5 s before it may take off.</span>}
     </div>

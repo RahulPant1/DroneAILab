@@ -11,7 +11,7 @@ Two ways to run it:
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Callable, Protocol
 
 import numpy as np
@@ -152,6 +152,7 @@ class LightweightSim:
         return self.state
 
 
+GPS_FAILSAFE_AFTER_S = 1.0  # GPS lost this long -> stop trusting the position estimate
 MAX_CATCH_UP_S = 0.1  # if the server stalls, skip ahead rather than racing to catch up
 
 
@@ -167,6 +168,10 @@ class RealtimeSim:
         self.sim.ground_align = True  # with sensor noise on: GPS must settle before take-off
         self.env = EnvConfig()  # wind; it stays the same across resets until changed
         self.sensor_cfg = SensorConfig()  # off = perfect sensors; also kept across resets
+        self.gps_outage = False  # no GPS fixes (only matters with sensor noise on); kept across resets
+        self.gps_failsafe = True  # on GPS loss: hold level + altitude instead of trusting a drifting position
+        self._gps_lost_at_s = 0.0
+        self._failsafe_was_on = False
         self.reset(config, seed)
 
     def reset(self, config: DroneConfig | None = None, seed: int | None = None) -> None:
@@ -177,6 +182,13 @@ class RealtimeSim:
         self.paused = False
         self._time_debt_s = 0.0
         self.notices: list[str] = []  # one-off messages for the UI's log (the WebSocket loop sends them)
+        self._gps_lost_at_s = 0.0
+        self._failsafe_was_on = False
+        self._apply_gps()
+
+    def _apply_gps(self) -> None:
+        if self.sim.sensors:
+            self.sim.sensors.gps_ok = not self.gps_outage
 
     def start_state(self) -> State | None:
         """Where the drone sits after a reset (None = on the ground at the origin)."""
@@ -184,7 +196,29 @@ class RealtimeSim:
 
     def next_setpoint(self, dt_s: float) -> Setpoint:
         """What the controller should aim for during the next physics step (the pilot decides)."""
-        return self.pilot.update(self.sim.estimate, dt_s, self.state)  # decides on the estimate
+        return self.apply_failsafe(self.pilot.update(self.sim.estimate, dt_s, self.state))  # decides on the estimate
+
+    def gps_lost_s(self) -> float:
+        """How long the GPS has been out (0 = fine, or perfect sensors where GPS isn't used)."""
+        if not (self.gps_outage and self.sim.estimator):
+            return 0.0
+        return max(0.0, self.state.time_s - self._gps_lost_at_s)
+
+    def failsafe_active(self) -> bool:
+        return self.gps_failsafe and self.gps_lost_s() >= GPS_FAILSAFE_AFTER_S and not self.state.on_ground
+
+    def apply_failsafe(self, sp: Setpoint) -> Setpoint:
+        """GPS-loss failsafe ('altitude mode'): without GPS the position estimate drifts away fast, so stop
+        chasing it. Hold the wings level and keep the height (the altimeter still works); the drone then only
+        drifts with its leftover speed, small tilt errors and the wind. When GPS returns, position hold resumes."""
+        on = self.failsafe_active() and sp.armed
+        if on != self._failsafe_was_on:
+            self._failsafe_was_on = on
+            self.notices.append(
+                "GPS-loss failsafe: holding level and altitude; position is NOT held (the drone may drift)."
+                if on else "Failsafe over: back to holding position."
+            )
+        return replace(sp, position_control=False, roll_rad=0.0, pitch_rad=0.0) if on else sp
 
     @property
     def state(self) -> State:
@@ -206,6 +240,8 @@ class RealtimeSim:
         s = self.sim.estimate  # buttons act on where the drone BELIEVES it is
         if cmd == "takeoff":
             wait = self.gps_settle_left_s()
+            if wait > 0 and self.pilot.mode == "idle" and self.gps_outage:
+                return self.pilot._say("No GPS fix (outage): take-off refused. The drone doesn't know where it is.")
             if wait > 0 and self.pilot.mode == "idle":
                 return self.pilot._say(f"GPS settling: {wait:.1f} s left. Take-off is allowed once the position estimate is steady.")
             return self.pilot.takeoff(s, args.get("alt_m"))
@@ -226,6 +262,8 @@ class RealtimeSim:
             return self.set_wind(args.get("speed_m_s", 0.0), args.get("direction_deg", 0.0), args.get("gust_m_s", 0.0))
         if cmd == "sensors":
             return self.set_sensors(bool(args.get("enabled", False)), args.get("noise_scale", 1.0), bool(args.get("gps_noise", True)))
+        if cmd == "gps":
+            return self.set_gps(bool(args.get("outage", False)), bool(args.get("failsafe", True)))
         if cmd == "sticks":
             self.pilot.set_sticks(Sticks(**{k: float(args.get(k, 0.0)) for k in ("forward", "left", "up", "yaw")}))
             return ""
@@ -243,6 +281,20 @@ class RealtimeSim:
             return "Wind off: calm air."
         return f"Wind {env.wind_speed_m_s:.1f} m/s toward {env.wind_direction_deg:.0f}°, gusts ±{env.gust_std_m_s:.1f} m/s."
 
+    def set_gps(self, outage: bool, failsafe: bool = True) -> str:
+        """GPS outage on/off (mid-flight is fine) and whether the GPS-loss failsafe is armed."""
+        if outage and not self.gps_outage:
+            self._gps_lost_at_s = self.state.time_s
+        self.gps_outage, self.gps_failsafe = outage, failsafe
+        self._apply_gps()
+        if not self.sim.estimator:
+            return "GPS setting saved. It only matters with sensor noise on (perfect sensors always know the position)."
+        if not outage:
+            return "GPS back: the estimate snaps back toward the true position, and the drone flies back to its target."
+        fs = (f"Failsafe in {GPS_FAILSAFE_AFTER_S:.0f} s: hold level and altitude." if failsafe
+              else "No failsafe: it keeps trusting its drifting position estimate.")
+        return f"GPS outage: no fixes. Position now comes from the motion sensors only (dead reckoning). {fs}"
+
     def gps_settle_left_s(self) -> float:
         """Pre-arm check: seconds until the GPS position has settled (0 with perfect sensors)."""
         return self.sim.estimator.settle_left_s if self.sim.estimator else 0.0
@@ -256,6 +308,8 @@ class RealtimeSim:
             raise ValueError("noise_scale must be a number.") from None
         self.sim.set_sensors(cfg)  # raises ConfigError (a ValueError) if out of range
         self.sensor_cfg = cfg
+        self._gps_lost_at_s = self.state.time_s
+        self._apply_gps()
         if not enabled:
             return "Perfect sensors: the controller sees the true state."
         wait = self.gps_settle_left_s()
@@ -287,6 +341,9 @@ class RealtimeSim:
             "est_pos_m": r(self.sim.estimator.state.pos_m) if self.sim.estimator else None,
             "est_quat": r(self.sim.estimator.state.quat, 5) if self.sim.estimator else None,
             "gps_settle_left_s": round(self.gps_settle_left_s(), 1),  # > 0: take-off not allowed yet
+            "gps_outage": bool(self.gps_outage and self.sim.estimator),  # no GPS fixes (sensor noise on)
+            "gps_lost_s": round(self.gps_lost_s(), 1),  # how long the outage has lasted
+            "failsafe": self.failsafe_active(),  # GPS-loss failsafe: holding level + altitude, not position
             "setpoint": {
                 "x_m": round(sp.x_m, 3),
                 "y_m": round(sp.y_m, 3),

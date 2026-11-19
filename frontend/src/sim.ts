@@ -24,6 +24,9 @@ export interface SimState {
   est_pos_m: Vec3 | null; // where the drone BELIEVES it is (sensor noise on), else null
   est_quat: Quat | null;
   gps_settle_left_s: number; // > 0: GPS still settling on the ground, take-off not allowed yet
+  gps_outage: boolean; // no GPS fixes (only with sensor noise on)
+  gps_lost_s: number; // how long the outage has lasted
+  failsafe: boolean; // GPS-loss failsafe active: holding level + altitude, NOT position
   setpoint: { x_m: number; y_m: number; alt_m: number; yaw_rad: number };
   message: string;
   mission: MissionStatus | null; // set while the mission autopilot is flying

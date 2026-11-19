@@ -48,3 +48,12 @@ Untick **🛰 GPS noise** (with sensor noise still on): the GPS becomes perfect 
 altimeter and compass stay noisy. Sideways wander drops about 5 times (0.5 m → 0.1 m at 3x), but up-down wobble
 stays the same, because height comes from the altimeter, not the GPS. That's why precise drones add RTK GPS
 (centimetre-level) or cameras for position.
+
+### GPS outage (try it!)
+Hover with sensor noise on, then tick **📵 GPS outage**. Without GPS, the drone can only work out its position by
+adding up its accelerometer readings (*dead reckoning*). Tiny errors add up into speed errors, and speed errors
+into position errors, so the drift grows with time squared: after 30 s, anything from 3 m to 30 m at 1x.
+That's why real drones have a **failsafe**: after 1 s without GPS, ours stops trusting its position and just holds
+level and keeps its height (the altimeter still works). It still drifts a few metres, but doesn't run away.
+Untick **failsafe** to see the difference, then untick the outage and watch it fly home. A mission is aborted on
+GPS loss, and take-off is refused without a GPS fix.

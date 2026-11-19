@@ -20,7 +20,7 @@ export default function Telemetry({ onLearn }: { onLearn: (slug: string) => void
     <section className="panel telemetry">
       <h2>Telemetry</h2>
       <div className="mode-line">
-        <span className={`mode mode-${s.mode}`}>{s.paused ? 'paused' : s.mode}</span>
+        <span className={`mode mode-${s.failsafe ? 'failsafe' : s.mode}`}>{s.paused ? 'paused' : s.failsafe ? 'failsafe' : s.mode}</span>
         <span className="muted">t = {s.t_s.toFixed(1)} s</span>
       </div>
 
@@ -37,6 +37,8 @@ export default function Telemetry({ onLearn }: { onLearn: (slug: string) => void
         <p className="muted small" title="Distance between where the drone thinks it is (its estimate) and where it really is">
           Sensors: noisy · estimate off by <b>{f(Math.hypot(...s.est_pos_m.map((v, i) => v - s.pos_m[i])), 2)} m</b>
           {s.gps_settle_left_s > 0 && <> · GPS settling ({s.gps_settle_left_s.toFixed(1)} s left)</>}
+          {s.gps_outage && <> · <b className="gps-lost">GPS LOST {s.gps_lost_s.toFixed(0)} s</b></>}
+          {s.failsafe && <> · <b className="gps-lost">FAILSAFE: holding level + altitude, not position</b></>}
         </p>
       )}
       <p className="muted small" title="The air's velocity at the drone right now (steady wind + gusts)">

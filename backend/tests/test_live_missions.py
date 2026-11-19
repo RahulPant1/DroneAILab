@@ -337,3 +337,63 @@ def test_gps_noise_defaults_to_on_so_lab_and_older_clients_are_unchanged():
     rt = MissionSim(BASIC)
     rt.command("sensors", enabled=True, noise_scale=1.0)  # no gps_noise field
     assert rt.sim.sensors.gps_sigma > 0
+
+
+# ---- GPS outage and the GPS-loss failsafe ----
+
+
+def outage_drift(failsafe: bool, seed: int = 0, seconds: float = 20.0) -> tuple[MissionSim, float]:
+    """Hover with 1x noise, lose GPS for `seconds`; return the sim and how far the drone really drifted."""
+    import numpy as np
+
+    rt = MissionSim(BASIC, seed=seed)
+    rt.command("sensors", enabled=True, noise_scale=1.0)
+    settle_gps(rt)
+    rt.command("takeoff", alt_m=2.0)
+    for _ in range(100):
+        rt.advance(0.05)
+    assert "dead reckoning" in rt.command("gps", outage=True, failsafe=failsafe)
+    for _ in range(int(seconds / 0.05)):
+        rt.advance(0.05)
+    return rt, float(np.hypot(*rt.state.pos_m[:2]))
+
+
+def test_without_gps_the_estimate_drifts_and_the_failsafe_limits_the_damage():
+    rt_fs, with_fs = outage_drift(failsafe=True)
+    rt_no, without = outage_drift(failsafe=False)
+    assert without > 5.0  # dead reckoning on noisy motion sensors runs away quickly
+    assert with_fs < 0.5 * without  # level + altitude hold drifts far less
+    assert rt_fs.snapshot()["failsafe"] and not rt_no.snapshot()["failsafe"]
+    assert abs(rt_fs.state.pos_m[2] - 2.0) < 0.3  # the altimeter still holds the height
+    assert rt_fs.snapshot()["gps_lost_s"] > 19
+
+
+def test_gps_return_brings_the_drone_back_and_ends_the_failsafe():
+    import numpy as np
+
+    rt, _ = outage_drift(failsafe=True, seconds=10.0)
+    assert "GPS back" in rt.command("gps", outage=False)
+    for _ in range(300):
+        rt.advance(0.05)
+    assert not rt.snapshot()["failsafe"] and rt.snapshot()["gps_lost_s"] == 0
+    assert np.hypot(*rt.state.pos_m[:2]) < 1.0  # back near the hover point (0, 0)
+
+
+def test_mission_aborts_on_gps_loss_and_take_off_needs_a_fix():
+    rt = MissionSim(BASIC)
+    rt.command("sensors", enabled=True, noise_scale=1.0)
+    rt.load_course("patrol")
+    rt.start_mission("astar")
+    for _ in range(200):
+        rt.advance(0.05)
+    rt.command("gps", outage=True)
+    notes = run_live(rt, max_s=3.0)
+    assert rt.follower is None and "Mission aborted: GPS lost." in notes
+    rt.reset()  # the outage is kept
+    assert "No GPS fix" in rt.command("takeoff")
+
+
+def test_gps_outage_does_nothing_with_perfect_sensors():
+    rt = MissionSim(BASIC)
+    assert "only matters with sensor noise on" in rt.command("gps", outage=True)
+    assert rt.gps_lost_s() == 0 and "Taking off" in rt.command("takeoff")
