@@ -218,18 +218,19 @@ function WindBar({ status }: { status: string }) {
 
 /** Noisy sensors on/off. With them on, the controller flies on its ESTIMATE (the ghost drone in 3D). */
 function SensorBar({ status }: { status: string }) {
-  const [sensors, setSensors] = useState({ on: false, level: 1, gps: true, outage: false, failsafe: true });
+  const [sensors, setSensors] = useState({ on: false, level: 1, gps: true, outage: false, failsafe: true, drag: 0.4 });
   const change = (patch: Partial<typeof sensors>) => {
     const v = { ...sensors, ...patch };
     setSensors(v);
     if (v.on !== sensors.on || v.level !== sensors.level || v.gps !== sensors.gps)
       sim.send('sensors', { enabled: v.on, noise_scale: v.level, gps_noise: v.gps });
-    if (v.outage !== sensors.outage || v.failsafe !== sensors.failsafe || v.on !== sensors.on)
-      sim.send('gps', { outage: v.outage, failsafe: v.failsafe });
+    if (v.outage !== sensors.outage || v.failsafe !== sensors.failsafe || v.on !== sensors.on || v.drag !== sensors.drag)
+      sim.send('gps', { outage: v.outage, failsafe: v.failsafe, drag_n_s_m: v.drag });
   };
   useEffect(() => {
     if (status === 'open' && sensors.on) sim.send('sensors', { enabled: true, noise_scale: sensors.level, gps_noise: sensors.gps });
-    if (status === 'open' && sensors.outage) sim.send('gps', { outage: true, failsafe: sensors.failsafe });
+    if (status === 'open' && (sensors.outage || sensors.drag !== 0.4))
+      sim.send('gps', { outage: sensors.outage, failsafe: sensors.failsafe, drag_n_s_m: sensors.drag });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
   const off = status !== 'open';
@@ -252,6 +253,11 @@ function SensorBar({ status }: { status: string }) {
       </label>
       <label className="inline" title="On GPS loss: after 1 s, stop trusting the drifting position. Hold level and altitude instead (missions are aborted). Untick to see what happens if the drone keeps trusting it.">
         <input type="checkbox" checked={sensors.failsafe} disabled={off || !sensors.on} onChange={(e) => change({ failsafe: e.target.checked })} /> failsafe
+      </label>
+      <label className="inline" title="Extra air drag while the failsafe is active, so the drone coasts to a stop when you let go of W/A/S/D. Not real physics (a 'training wheels' helper): 0 = a real drone, which coasts until you counter-steer. The drone's own drag is 0.1.">
+        drag
+        <input type="range" min={0} max={1} step={0.1} value={sensors.drag} disabled={off || !sensors.on || !sensors.failsafe} onChange={(e) => change({ drag: Number(e.target.value) })} />
+        <b className="wind-num">{sensors.drag.toFixed(1)}</b> N·s/m
       </label>
       {sensors.on && <span className="muted">Ghost outline = where the drone <i>thinks</i> it is. The controller steers the ghost, not the real drone. On the ground it averages GPS for 5 s before it may take off.</span>}
     </div>

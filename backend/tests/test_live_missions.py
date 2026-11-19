@@ -466,3 +466,19 @@ def test_failsafe_extra_drag_lets_the_drone_coast_to_a_stop_and_switches_off_wit
     rt.command("gps", outage=False)
     rt.advance(0.05)
     assert rt.sim.physics.extra_drag_n_s_m == 0.0  # real physics again once GPS is back
+
+
+def test_failsafe_drag_setting_zero_means_real_physics_and_it_keeps_coasting():
+    import numpy as np
+    import pytest as _pytest
+
+    rt, _ = outage_drift(failsafe=True, seconds=1.5)
+    msg = rt.command("gps", outage=True, failsafe=True, drag_n_s_m=0.0)
+    assert "real physics" in msg
+    press(rt, seconds=1.5, coast_s=6.0, forward=1.0)
+    assert rt.sim.physics.extra_drag_n_s_m == 0.0
+    assert np.hypot(*rt.state.vel_m_s[:2]) > 1.0  # no helper: still coasting 6 s later
+    rt.reset()
+    assert rt.failsafe_drag_n_s_m == 0.0  # the setting survives a reset, like wind and sensors
+    with _pytest.raises(ValueError):
+        rt.command("gps", outage=True, drag_n_s_m=5.0)

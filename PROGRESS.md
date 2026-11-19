@@ -287,6 +287,8 @@ ones); the obstacles are known in advance (no sensing).
 - Tilt lowered 12° -> 8°, plus extra failsafe-only air drag (`FAILSAFE_EXTRA_DRAG_N_S_M = 0.4`, the drone's own is
   0.10; `QuadcopterPhysics.extra_drag_n_s_m`, 0 outside failsafe). A 1.5 s W press + 2 s coast: 7.9 m (12°) ->
   5.3 m (8°) -> 3.3 m (8° + drag); holding W: top speed 7.2 -> 2.7 m/s; it stops by itself within ~6 s.
+- Drag slider (0–1 N·s/m, default 0.4) next to the failsafe box; WS `gps` takes `drag_n_s_m`; kept across resets.
+  0 = real physics (still coasting > 1 m/s 6 s after letting go).
 - Directions checked at headings 0° and 90° (W = nose direction, A = its left). The keys hint under the 3D view
   switches to the tilt meaning in failsafe.
 - Tests: 158 pass (+3).
