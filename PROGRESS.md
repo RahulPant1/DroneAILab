@@ -321,3 +321,23 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
 - Every track is finished by a simple "aim at each ring" autopilot in the tests: 5.2 / 7.1 / 8.1 / 8.8 s.
 - Tests: +8 (170).
 
+## Extra: multi-drone formation flight (done 2026-11-20)
+- `backend/autonomy/formation.py`: up to 4 wingmen, each its own LightweightSim + Pilot (perfect sensors, own gusts).
+  Slots (V / line / column, spacing 1.5–4 m) in the leader's frame, around the position the leader BROADCASTS (its
+  estimate). Shape heading = leader's nose; on a mission (autopilot doesn't turn the nose) = direction of travel,
+  turning <= 60°/s. Wingmen copy the leader's phase (take off / fly / land).
+- Avoidance (one switch): look 1 s ahead when closing > 0.3 m/s (or < 1.2 m now), push away + sidestep + vertical
+  dodge 2 m (vs the leader: odd/even split; between wingmen: lower number climbs). Obstacles: if the way to its slot
+  is blocked, a wingman breaks formation and follows the leader's trail (queue in current order, 1 m carrot), plus
+  a push away from nearby boxes. Collisions (< 0.6 m centre to centre, truth) stop both drones (incl. yours).
+- Measured: 24 drone-drone stress cases (backing into a column, shape switches, calm / 6 m/s wind, spacing 1.5–4):
+  6 crashes off, 0 on. 24 A* missions (4 courses x 3 shapes x 2/4 wingmen): crashes in 14 off, 1 on (line of 5 in
+  box canyon). GPS outage: wingmen follow the leader's drifting estimate (10 m off after 30 s with failsafe).
+  CPU: ~170 ms per simulated second with 4 wingmen (~17 % of one core).
+- Things that didn't work (kept here so we don't retry them): a trail-following column (wingmen fly through the
+  leader when it reverses); 1 m minimum spacing (steady formations sat inside the avoidance zone and kept dodging);
+  odd/even vertical dodging between wingmen (same-side wingmen dodged into each other).
+- UI: 🛩 Wingmen bar (count, shape, spacing, 🛡 avoid crashes), coloured numbered wingmen in 3D (grey = crashed),
+  Telemetry "closest gap". Lesson 11. WS `formation` cmd; snapshot `formation`.
+- Tests: +7 (177).
+

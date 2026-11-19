@@ -112,6 +112,7 @@ export default function Controls({ follow, setFollow, onLearn }: { follow: boole
       </div>
       <RaceBar s={s} offline={offline} onLearn={onLearn} />
       <MissionBar s={s} offline={offline} onLearn={onLearn} />
+      <FormationBar status={status} onLearn={onLearn} />
       <WindBar status={status} onLearn={onLearn} />
       <SensorBar status={status} onLearn={onLearn} />
     </div>
@@ -212,6 +213,52 @@ function MissionBar({ s, offline, onLearn }: { s: SimState | null; offline: bool
           rings = waypoints at {course.cruise_alt_m} m (green done, yellow next) · yellow dashes = planned route. Touching a box stops the motors.
         </p>
       )}
+    </div>
+  );
+}
+
+/** Multi-drone: wingmen that fly with you in a shape. Settings stay through Reset; re-sent on reconnect. */
+function FormationBar({ status, onLearn }: { status: string; onLearn: (slug: string) => void }) {
+  const [f, setF] = useState({ count: 0, shape: 'v', spacing: 1.5, avoid: true });
+  const send = (v: typeof f) => sim.send('formation', { count: v.count, shape: v.shape, spacing_m: v.spacing, avoid: v.avoid });
+  const change = (patch: Partial<typeof f>) => {
+    const v = { ...f, ...patch };
+    setF(v);
+    send(v);
+  };
+  useEffect(() => {
+    if (status === 'open' && f.count > 0) send(f);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+  const off = status !== 'open';
+  const none = f.count === 0;
+
+  return (
+    <div className="row small formation-bar">
+      <label className="inline" title="Extra drones that follow you in a shape. They take off, fly, turn and land with you. Each one has its own autopilot.">
+        🛩 Wingmen
+        <select value={f.count} disabled={off} onChange={(e) => change({ count: Number(e.target.value) })}>
+          <option value={0}>none</option>
+          {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </label>
+      <label className="inline" title="The shape they fly in, lined up with your drone's nose (Q/E turn the whole formation)">
+        shape
+        <select value={f.shape} disabled={off || none} onChange={(e) => change({ shape: e.target.value })}>
+          <option value="v">V (like geese)</option>
+          <option value="line">line (side by side)</option>
+          <option value="column">column (single file)</option>
+        </select>
+      </label>
+      <label className="inline" title="Distance between neighbours (1.5–4 m)">
+        spacing
+        <input type="range" min={1.5} max={4} step={0.5} value={f.spacing} disabled={off || none} onChange={(e) => change({ spacing: Number(e.target.value) })} />
+        <b className="wind-num">{f.spacing.toFixed(1)}</b> m
+      </label>
+      <label className="inline" title="Wingmen dodge each other (sideways and up/down) and keep out of obstacles, breaking formation to follow your path through gaps. Untick to see why swarms need this: fly backwards (S) into a column.">
+        <input type="checkbox" checked={f.avoid} disabled={off || none} onChange={(e) => change({ avoid: e.target.checked })} /> 🛡 avoid crashes
+      </label>
+      <button className="link" onClick={() => onLearn('11-formation-flight')}>📖 Learn: formation flight</button>
     </div>
   );
 }

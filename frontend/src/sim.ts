@@ -33,6 +33,17 @@ export interface SimState {
   message: string;
   mission: MissionStatus | null; // set while the mission autopilot is flying
   race: RaceStatus | null; // set while a rings-race track is loaded
+  formation: FormationStatus | null; // set while wingmen are flying with you
+}
+
+/** Multi-drone formation: wingmen that follow your drone. */
+export interface FormationStatus {
+  count: number;
+  shape: 'v' | 'line' | 'column';
+  spacing_m: number;
+  avoid: boolean;
+  min_gap_m: number | null; // closest centre-to-centre distance between any two drones in the air (< 0.6 = touching)
+  wingmen: { pos_m: Vec3; quat: Quat; motor_pct: number[]; crashed: boolean; breaking: boolean }[];
 }
 
 /** One upright hoop of the rings race (fly through it toward heading_deg: 0 = east, 90 = north). */

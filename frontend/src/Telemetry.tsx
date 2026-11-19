@@ -48,6 +48,16 @@ export default function Telemetry({ onLearn }: { onLearn: (slug: string) => void
           {s.failsafe && <> · <b className="gps-lost">FAILSAFE: holding level + altitude, not position</b></>}
         </p>
       )}
+      {s.formation && (
+        <p className="muted small" title="Closest distance between the centres of any two drones in the air. Under 0.6 m their propellers touch.">
+          Formation: {s.formation.count} wingm{s.formation.count === 1 ? 'a' : 'e'}n
+          {s.formation.min_gap_m !== null && (
+            <> · closest gap <b className={s.formation.min_gap_m < 1.0 ? 'gps-lost' : ''}>{f(s.formation.min_gap_m, 2)} m</b></>
+          )}
+          {s.formation.wingmen.some((w) => w.crashed) && <> · <b className="gps-lost">{s.formation.wingmen.filter((w) => w.crashed).length} crashed</b></>}
+          {s.formation.wingmen.some((w) => w.breaking) && <> · breaking formation for an obstacle</>}
+        </p>
+      )}
       <p className="muted small" title="The air's velocity at the drone right now (steady wind + gusts)">
         {windSpeed < 0.05 ? 'Wind: calm' : `Wind ${f(windSpeed, 1)} m/s toward ${compassName(windDir)} (${f(windDir, 0)}°)`}
       </p>

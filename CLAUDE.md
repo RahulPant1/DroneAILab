@@ -3,7 +3,7 @@
 **Source of truth:** `docs/PRD.md`. Read it fully before any work.
 
 ## Current phase
-Phase 4 done (missions: waypoints, box obstacles, straight/potential/A* planners, mission metrics) + missions, live wind and live sensor noise in the 3D Fly view (170 tests) + rings race game. All PRD phases complete; Roadmap items need explicit approval. Update this line at every phase change.
+Phase 4 done (missions: waypoints, box obstacles, straight/potential/A* planners, mission metrics) + missions, live wind and live sensor noise in the 3D Fly view (177 tests) + rings race game + multi-drone formation. All PRD phases complete; Roadmap items need explicit approval. Update this line at every phase change.
 
 ## Machine facts (from Phase 0)
 Project at `~/DroneAILab`. Ubuntu 22.04 on WSL2 (mirrored networking). WSL has 9 GB RAM, **swap = 0**, 4 CPUs. Treat RAM as tight.
@@ -33,6 +33,7 @@ plain-English docstrings on physics/control functions.
 - Experiments live in `backend/experiments/` (one module each, registered in `__init__.py`); a run's plots/summary/try-next travel inside its RunResult. Saved runs: `data/experiments/` (re-run server-side on save).
 - Assistant: `backend/ai/` (client, prompts, schemas, assistant). Tests use a fake Ollama (httpx.MockTransport); never load the model in pytest. Run context is rebuilt server-side from run refs. Log: `data/assistant_log.jsonl`.
 - Autonomy: `backend/autonomy/` (world, planner, follower, mission, live). `live.MissionSim` = Fly-view sim with a course + mission autopilot (WS cmds `course`, `mission`; `wind` and `sensors` are on RealtimeSim, both default off). Pilot buttons and MissionFollower act on the estimate; only crash/ground contact use truth. Live view: GPS settle (5 s ground averaging) before take-off with noise on; GPS outage toggle + failsafe (level + altitude hold; W/A/S/D tilt, x/y target frozen). Lab experiment 7 = missions; map plots use `Plot(kind="map", extra=...)`. CLI: `python -m backend.cli mission --scenario box_canyon --planner potential`.
+- Multi-drone: `backend/autonomy/formation.py` (wingmen = own LightweightSim + Pilot; WS `formation` cmd on MissionSim; follow the leader's broadcast estimate).
 - Games: `backend/games/race.py` (rings race; WS `race` cmd on MissionSim; best times `data/race_best.json`, tests monkeypatch `BEST_TIMES_FILE`).
 - Sensors off (`SensorConfig.enabled=False`) = controller sees truth; keep it that way for the Phase 1 tests.
 - Avoid drei `<Html>` (React 19 unmount warnings) and drei `Text`/`Environment` (fetch from CDN; the app must work offline).

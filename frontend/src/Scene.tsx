@@ -35,18 +35,34 @@ const MOTORS: { x: number; y: number; front: boolean }[] = [
   { x: -1, y: -1, front: false },
 ];
 
-function Drone({ armLength }: { armLength: number }) {
-  const group = useRef<THREE.Group>(null!);
+/** Where a drone is and how it's turned, for drawing it. */
+interface Pose {
+  pos_m: Vec3;
+  quat: [number, number, number, number];
+  motor_pct: number[];
+  crashed?: boolean;
+}
+
+const WINGMAN_COLORS = ['#ffd166', '#06d6a0', '#c77dff', '#f4a261'];
+
+/** One quadcopter. `pick` says where it is right now (null = don't draw it). Your drone is light grey;
+ *  wingmen get their own body colour and a number above them. */
+function Drone({ armLength, pick, body = '#d8dee9', label }: { armLength: number; pick: () => Pose | null | undefined; body?: string; label?: string }) {
+  const outer = useRef<THREE.Group>(null!); // follows the position only (so the label stays upright)
+  const group = useRef<THREE.Group>(null!); // also turns with the drone
+  const bodyMat = useRef<THREE.MeshStandardMaterial>(null!);
   const rotorMats = useRef<(THREE.MeshStandardMaterial | null)[]>([]);
   const a = armLength / Math.SQRT2;
   const rotorRadius = 0.45 * armLength;
 
   useFrame(() => {
-    const s = sim.latest;
+    const s = pick();
+    outer.current.visible = !!s;
     if (!s) return;
-    group.current.position.set(s.pos_m[0], s.pos_m[1], s.pos_m[2]);
+    outer.current.position.set(s.pos_m[0], s.pos_m[1], s.pos_m[2]);
     const [w, x, y, z] = s.quat;
     group.current.quaternion.set(x, y, z, w); // three.js order is (x, y, z, w)
+    bodyMat.current.color.set(s.crashed ? '#4a5568' : body);
     s.motor_pct.forEach((pct, i) => {
       const m = rotorMats.current[i];
       if (m) m.emissiveIntensity = 0.05 + (pct / 100) * 1.5; // brighter rotor = harder working motor
@@ -54,10 +70,12 @@ function Drone({ armLength }: { armLength: number }) {
   });
 
   return (
+    <group ref={outer}>
+    {label && <Label text={label} color={body} position={[0, 0, 0.35]} size={1.2} />}
     <group ref={group}>
       <mesh>
         <boxGeometry args={[0.6 * armLength, 0.45 * armLength, 0.2 * armLength]} />
-        <meshStandardMaterial color="#d8dee9" />
+        <meshStandardMaterial ref={bodyMat} color={body} />
       </mesh>
       {/* Nose cone points forward (+x body) so you can always see the heading. */}
       <mesh position={[0.42 * armLength, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
@@ -85,6 +103,18 @@ function Drone({ armLength }: { armLength: number }) {
         </group>
       ))}
     </group>
+    </group>
+  );
+}
+
+/** Wingmen (multi-drone formation): up to 4 extra drones, drawn from the formation part of each state. */
+function Wingmen({ armLength }: { armLength: number }) {
+  return (
+    <>
+      {WINGMAN_COLORS.map((c, i) => (
+        <Drone key={i} armLength={armLength} body={c} label={String(i + 1)} pick={() => sim.latest?.formation?.wingmen[i]} />
+      ))}
+    </>
   );
 }
 
@@ -292,7 +322,8 @@ export default function Scene({ armLength, follow }: { armLength: number; follow
         <GhostDrone armLength={armLength} />
         <Trail />
         <Markers armLength={armLength} />
-        <Drone armLength={armLength} />
+        <Drone armLength={armLength} pick={() => sim.latest} />
+        <Wingmen armLength={armLength} />
       </group>
       <OrbitControls makeDefault target={[0, 0.5, 0]} maxPolarAngle={Math.PI / 2 - 0.02} />
       <FollowCamera enabled={follow} />

@@ -26,6 +26,11 @@ to watch the autopilot fly it live. Hover / Land take over from the autopilot.
 and fly through the glowing hoops in order, following the arrows. A big timer runs top-right; best times are
 saved in `data/race_best.json`. **↺ Race again** restarts. Tips: the 📖 Racing tips button (lesson 10).
 
+**🛩 Wingmen (multi-drone):** pick 1–4 wingmen, a shape (V, line, column) and spacing under the 3D view. They take
+off, fly, turn and land with you, each on its own autopilot. **🛡 avoid crashes** makes them dodge each other and
+break formation to follow your path past obstacles; untick it and fly backwards (S) into a column to see why swarms
+need it. Lesson 11 explains how it works.
+
 **Wind (live):** the 🌬 Wind sliders under the 3D view set a steady wind, its direction and gusts. Changes apply
 mid-flight; an arrow above the drone shows the air's motion right now.
 **Sensor noise (live):** tick 📡 Sensor noise to fly on realistic noisy sensors. A pink ghost outline shows where the

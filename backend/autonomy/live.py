@@ -22,6 +22,7 @@ from backend.sim.runner import RealtimeSim
 from backend.games.race import TRACKS, Race
 
 from .follower import Mission, MissionFollower
+from .formation import SHAPE_NAMES, Formation, LeaderInfo
 from .mission import PLANNERS, SCENARIOS, MissionError, scenario_mission
 from .planner import PlanningError, plan_route
 from .world import DRONE_RADIUS_M, SAFETY_MARGIN_M, clearance_m
@@ -40,6 +41,7 @@ class MissionSim(RealtimeSim):
         self.follower: MissionFollower | None = None
         self.race: Race | None = None  # rings race (a game); never loaded together with a course
         self._race_prev_pos = None
+        self.formation = Formation()  # wingmen that follow your drone (0 = off); kept across resets
         super().__init__(config, seed)
 
     # ---- course ----
@@ -63,6 +65,32 @@ class MissionSim(RealtimeSim):
             self.race.restart()  # Reset = try the race again
         self._race_prev_pos = None
         super().reset(config, seed)
+        self._spawn_formation()
+
+    def _spawn_formation(self, keep_existing: bool = False) -> None:
+        """Wingmen start on the ground at their slots around your drone."""
+        s = self.sim.estimate
+        self.formation.spawn(self.config, self.seed, s.pos_m[:2], s.euler_rad()[2], self.env, keep_existing)
+
+    def set_formation(self, count, shape="v", spacing_m=1.5, avoid=True) -> str:
+        try:
+            count, spacing_m = int(count), float(spacing_m)
+        except (TypeError, ValueError):
+            raise ValueError("Formation needs numbers: count, spacing_m.") from None
+        old = self.formation.count
+        self.formation.configure(count, str(shape), spacing_m, bool(avoid))
+        if count != old:
+            self._spawn_formation(keep_existing=True)  # new wingmen appear on the ground below their slots
+        if count == 0:
+            return "Formation off: you fly alone."
+        avoid_txt = "they avoid crashing into each other and into obstacles" if avoid else "NO collision avoidance: watch out"
+        return (f"Formation: {count} wingm{'a' if count == 1 else 'e'}n in a {SHAPE_NAMES[shape]}, {spacing_m:.1f} m apart; "
+                f"{avoid_txt}. They take off, fly and land with you.")
+
+    def set_wind(self, speed_m_s, direction_deg, gust_m_s) -> str:
+        msg = super().set_wind(speed_m_s, direction_deg, gust_m_s)
+        self.formation.set_env(self.env)  # the wind blows on everyone
+        return msg
 
     def load_course(self, scenario_id: str | None) -> str:
         """Load a built-in course (or None for an empty world) and put the drone on its start point."""
@@ -170,6 +198,32 @@ class MissionSim(RealtimeSim):
     # ---- every physics step ----
 
     def next_setpoint(self, dt_s: float) -> Setpoint:
+        sp = self._leader_setpoint(dt_s)
+        if self.formation.count:
+            self._step_formation(sp, dt_s)
+        return sp
+
+    def _step_formation(self, sp: Setpoint, dt_s: float) -> None:
+        """Tell the wingmen what the leader is doing, step them, and check drone-to-drone collisions."""
+        s = self.state
+        landing = self.pilot.mode == "land" or (self.follower is not None and self.follower.phase == "land")
+        phase = "off" if not sp.armed else "landing" if landing else "flying"
+        est = self.sim.estimate
+        leader = LeaderInfo(est.pos_m.copy(), est.vel_m_s.copy(), sp.yaw_rad, sp.alt_m, phase,
+                            self.follower is not None, s.pos_m, s.on_ground)
+        obstacles = self.mission.obstacles if self.mission else []
+        self.notices += self.formation.step(leader, obstacles, dt_s)
+        said, leader_hit = self.formation.check_collisions(s.pos_m, sp.armed and not s.on_ground)
+        self.notices += said
+        if said:
+            self.pilot.message = said[-1]
+        if leader_hit:
+            self.follower = None
+            self.pilot = Pilot()  # motors off: you're idle until Reset
+            self.pilot.message = said[-1]
+            sp.armed = False
+
+    def _leader_setpoint(self, dt_s: float) -> Setpoint:
         s = self.state
         if self.race:
             self._update_race(s)
@@ -221,6 +275,8 @@ class MissionSim(RealtimeSim):
             return self.load_course(args.get("scenario") or None)
         if cmd == "race":
             return self.load_race(args.get("track") or None)
+        if cmd == "formation":
+            return self.set_formation(args.get("count", 0), args.get("shape", "v"), args.get("spacing_m", 1.5), args.get("avoid", True))
         if cmd == "mission":
             return self.start_mission(str(args.get("planner", "astar")), args.get("cruise_speed_m_s"))
         if self.follower:
@@ -238,4 +294,5 @@ class MissionSim(RealtimeSim):
             if f else None
         )  # fmt: skip
         snap["race"] = self.race.status(self.state.time_s) if self.race else None
+        snap["formation"] = self.formation.snapshot() if self.formation.count else None
         return snap
