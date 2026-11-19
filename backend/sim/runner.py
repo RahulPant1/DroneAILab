@@ -153,6 +153,9 @@ class LightweightSim:
 
 
 GPS_FAILSAFE_AFTER_S = 1.0  # GPS lost this long -> stop trusting the position estimate
+# Extra air drag in the failsafe (N per m/s; the drone's own is 0.10). Not real physics: a helper so the drone
+# doesn't coast so far when you steer it without GPS. Speed now halves in about 1.4 s instead of ~7 s.
+FAILSAFE_EXTRA_DRAG_N_S_M = 0.4
 MAX_CATCH_UP_S = 0.1  # if the server stalls, skip ahead rather than racing to catch up
 
 
@@ -220,6 +223,7 @@ class RealtimeSim:
                 "GPS-loss failsafe: holding level and altitude; position is NOT held. W/A/S/D now tilt the drone."
                 if on else "Failsafe over: back to holding position."
             )
+        self.sim.physics.extra_drag_n_s_m = FAILSAFE_EXTRA_DRAG_N_S_M if on else 0.0
         if not on:
             return sp
         roll, pitch = self.pilot.tilt_from_sticks()

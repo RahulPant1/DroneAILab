@@ -454,3 +454,15 @@ def test_after_steering_in_failsafe_gps_return_brings_it_back_to_the_frozen_targ
     for _ in range(300):
         rt.advance(0.05)
     assert np.hypot(*(rt.state.pos_m[:2] - target)) < 1.0
+
+
+def test_failsafe_extra_drag_lets_the_drone_coast_to_a_stop_and_switches_off_with_gps():
+    import numpy as np
+
+    rt, _ = outage_drift(failsafe=True, seconds=1.5)
+    assert rt.sim.physics.extra_drag_n_s_m > 0  # on in failsafe
+    press(rt, seconds=1.5, coast_s=6.0, forward=1.0)
+    assert np.hypot(*rt.state.vel_m_s[:2]) < 0.2  # coasted (nearly) to a stop by itself
+    rt.command("gps", outage=False)
+    rt.advance(0.05)
+    assert rt.sim.physics.extra_drag_n_s_m == 0.0  # real physics again once GPS is back

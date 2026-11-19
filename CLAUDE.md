@@ -3,7 +3,7 @@
 **Source of truth:** `docs/PRD.md`. Read it fully before any work.
 
 ## Current phase
-Phase 4 done (missions: waypoints, box obstacles, straight/potential/A* planners, mission metrics) + missions, live wind and live sensor noise in the 3D Fly view (158 tests). All PRD phases complete; Roadmap items need explicit approval. Update this line at every phase change.
+Phase 4 done (missions: waypoints, box obstacles, straight/potential/A* planners, mission metrics) + missions, live wind and live sensor noise in the 3D Fly view (159 tests). All PRD phases complete; Roadmap items need explicit approval. Update this line at every phase change.
 
 ## Machine facts (from Phase 0)
 Project at `~/DroneAILab`. Ubuntu 22.04 on WSL2 (mirrored networking). WSL has 9 GB RAM, **swap = 0**, 4 CPUs. Treat RAM as tight.

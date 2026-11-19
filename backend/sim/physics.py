@@ -101,6 +101,9 @@ class QuadcopterPhysics:
         self.last_thrusts_n = np.zeros(4)
         self.last_rotor_power_w = 0.0
         self.last_accel_m_s2 = np.zeros(3)  # true acceleration (world), what an accelerometer feels + g
+        # Extra linear drag on top of the drone's own (N per m/s). 0 = real physics. The live view switches it on
+        # in the GPS-loss failsafe as a "training wheels" helper, so the drone doesn't coast as far.
+        self.extra_drag_n_s_m = 0.0
 
     def motor_speed_command(self, motor_pct: np.ndarray) -> np.ndarray:
         """Convert motor % (0-100) into a target spin speed.
@@ -151,7 +154,7 @@ class QuadcopterPhysics:
         vel = state.vel_m_s
         air_vel = vel if wind_m_s is None else vel - wind_m_s  # velocity relative to the air
         airspeed = math.sqrt(air_vel[0] * air_vel[0] + air_vel[1] * air_vel[1] + air_vel[2] * air_vel[2])
-        drag_n = -(cfg.drag_linear_n_s_m + cfg.drag_quadratic_n_s2_m2 * airspeed) * air_vel
+        drag_n = -(cfg.drag_linear_n_s_m + self.extra_drag_n_s_m + cfg.drag_quadratic_n_s2_m2 * airspeed) * air_vel
         force_n = self.gravity_n + body_up_in_world(state.quat) * total_thrust_n + drag_n
         accel_m_s2 = force_n / self.mass_kg
         self.last_accel_m_s2 = accel_m_s2

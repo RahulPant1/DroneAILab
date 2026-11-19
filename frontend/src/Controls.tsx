@@ -90,7 +90,7 @@ export default function Controls({ follow, setFollow }: { follow: boolean; setFo
       <div className="row small">
         {s?.failsafe ? (
           <span className="keys gps-lost" title="GPS-loss failsafe: no position hold. The keys tilt the drone directly; it keeps coasting until you tilt the other way.">
-            Failsafe: <kbd>W</kbd><kbd>S</kbd><kbd>A</kbd><kbd>D</kbd> <b>tilt</b> the drone (it coasts: counter-steer to stop) · <kbd>R</kbd><kbd>F</kbd> up/down · <kbd>Q</kbd><kbd>E</kbd> turn
+            Failsafe: <kbd>W</kbd><kbd>S</kbd><kbd>A</kbd><kbd>D</kbd> <b>tilt</b> the drone (it coasts, slowed by extra failsafe drag: counter-steer to stop sooner) · <kbd>R</kbd><kbd>F</kbd> up/down · <kbd>Q</kbd><kbd>E</kbd> turn
           </span>
         ) : (
           <span className="keys">
