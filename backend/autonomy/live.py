@@ -100,8 +100,10 @@ class MissionSim(RealtimeSim):
         self.follower = MissionFollower(self.mission, route, planner)
         self._events_seen = 0
         self.pilot.mode = "mission"
-        self.pilot.message = f"Mission ({planner}): taking off."
-        return f"Mission started with the {planner} planner at {speed:.1f} m/s."
+        wait = self.gps_settle_left_s()
+        self.pilot.message = f"Mission ({planner}): " + (f"waiting {wait:.0f} s for GPS to settle." if wait > 0 else "taking off.")
+        gps = f" Waiting {wait:.0f} s for GPS to settle first." if wait > 0 else ""
+        return f"Mission started with the {planner} planner at {speed:.1f} m/s.{gps}"
 
     def _end_mission(self, state: State) -> None:
         """The autopilot is finished: give the controls back."""
@@ -132,6 +134,9 @@ class MissionSim(RealtimeSim):
 
     def next_setpoint(self, dt_s: float) -> Setpoint:
         s = self.state
+        if self.follower and self.gps_settle_left_s() > 0:
+            self.follower._t_last = s.time_s  # the autopilot's clock starts once it may take off
+            return Setpoint(armed=False, position_control=True, x_m=float(s.pos_m[0]), y_m=float(s.pos_m[1]))
         if self.follower:
             sp = self.follower.setpoint_for(self.sim.estimate, s.time_s, s)  # navigates on the estimate
             for ev in self.follower.events[self._events_seen:]:
@@ -184,7 +189,7 @@ class MissionSim(RealtimeSim):
         snap = super().snapshot()
         f = self.follower
         snap["mission"] = (
-            {"planner": self.planner, "phase": f.phase, "next_wp": f.next_wp, "waypoints_total": len(f.m.waypoints) - 1}
+            {"planner": self.planner, "phase": "gps" if self.gps_settle_left_s() > 0 else f.phase, "next_wp": f.next_wp, "waypoints_total": len(f.m.waypoints) - 1}
             if f else None
         )  # fmt: skip
         return snap

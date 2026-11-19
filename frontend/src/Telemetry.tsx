@@ -36,6 +36,7 @@ export default function Telemetry({ onLearn }: { onLearn: (slug: string) => void
       {s.est_pos_m && (
         <p className="muted small" title="Distance between where the drone thinks it is (its estimate) and where it really is">
           Sensors: noisy · estimate off by <b>{f(Math.hypot(...s.est_pos_m.map((v, i) => v - s.pos_m[i])), 2)} m</b>
+          {s.gps_settle_left_s > 0 && <> · GPS settling ({s.gps_settle_left_s.toFixed(1)} s left)</>}
         </p>
       )}
       <p className="muted small" title="The air's velocity at the drone right now (steady wind + gusts)">

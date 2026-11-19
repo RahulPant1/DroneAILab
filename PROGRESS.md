@@ -247,4 +247,15 @@ ones); the obstacles are known in advance (no sensing).
   The estimate drifts on the ground before take-off (up to ~0.7 m at 3x), so take-off aims at the drifted spot.
 - Tests: 146 pass (+1).
 
+## Extra: GPS settle before arming (done 2026-11-19)
+- Live view only (`LightweightSim.ground_align`; Lab runs unchanged). With sensor noise on, while the drone is
+  disarmed on the ground the estimator knows it is still: position = average of all GPS fixes (and altimeter
+  readings) so far, velocity = 0. Take off is refused until 5 s of fixes (50) are averaged; Fly mission waits in a
+  "gps" phase. No wait with perfect sensors, when noise is switched on in the air, or after a landing.
+- Estimate error at take-off: before, up to ~0.7 m at 3x (drifted filter); now 0.15 m at 3x, 0.05 m at 1x
+  (single fix 1.6 m / 0.54 m; error shrinks about 1/sqrt(fixes)). In-flight error is unchanged, so Fly-to
+  misses are still 0.15–0.25 m (1x) / 0.45–0.8 m (3x): settling fixes the start, not the flight.
+- UI: Take off button shows "🛰 GPS settling 3.2 s"; Telemetry and mission status show it too.
+- Tests: 149 pass (+3; three older noisy tests now wait for the settle).
+
 ## Next: Roadmap items (PX4/Gazebo, ROS 2, vision, …) only with explicit approval.

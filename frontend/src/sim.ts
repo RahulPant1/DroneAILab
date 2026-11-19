@@ -23,6 +23,7 @@ export interface SimState {
   wind_m_s: Vec3; // the air's velocity right now (steady wind + gusts), world frame
   est_pos_m: Vec3 | null; // where the drone BELIEVES it is (sensor noise on), else null
   est_quat: Quat | null;
+  gps_settle_left_s: number; // > 0: GPS still settling on the ground, take-off not allowed yet
   setpoint: { x_m: number; y_m: number; alt_m: number; yaw_rad: number };
   message: string;
   mission: MissionStatus | null; // set while the mission autopilot is flying
@@ -30,7 +31,7 @@ export interface SimState {
 
 export interface MissionStatus {
   planner: string;
-  phase: 'takeoff' | 'cruise' | 'land' | 'landed' | 'crashed' | 'stuck';
+  phase: 'gps' | 'takeoff' | 'cruise' | 'land' | 'landed' | 'crashed' | 'stuck';
   next_wp: number;
   waypoints_total: number;
 }

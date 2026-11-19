@@ -155,10 +155,20 @@ def test_crosswind_shrinks_the_gap_in_a_live_mission_like_in_the_lab():
 # ---- sensor noise in the live view ----
 
 
+def settle_gps(rt: MissionSim) -> None:
+    """With sensor noise on, take-off is refused until the GPS has settled (5 s on the ground)."""
+    for _ in range(200):
+        if rt.gps_settle_left_s() == 0:
+            return
+        rt.advance(0.05)
+    raise AssertionError("GPS never settled")
+
+
 def hover_spread(rt: MissionSim) -> tuple[float, float]:
     """Fly 15 s at 2 m; return (horizontal wander std, mean estimate error)."""
     import numpy as np
 
+    settle_gps(rt)
     rt.command("takeoff", alt_m=2.0)
     for _ in range(100):
         rt.advance(0.05)
@@ -194,6 +204,7 @@ def test_sensor_setting_survives_reset_and_can_be_switched_off_mid_flight():
     rt.command("sensors", enabled=True, noise_scale=2.0)
     rt.reset()
     assert rt.sim.estimator is not None
+    settle_gps(rt)
     rt.command("takeoff", alt_m=2.0)
     for _ in range(60):
         rt.advance(0.05)
@@ -240,8 +251,7 @@ def test_buttons_use_the_estimate_and_still_land_safely_with_noise():
 
     rt = MissionSim(BASIC, seed=0)
     rt.command("sensors", enabled=True, noise_scale=3.0)
-    for _ in range(60):  # on the ground for 3 s: the estimate drifts a little
-        rt.advance(0.05)
+    settle_gps(rt)
     est = rt.sim.estimate.pos_m.copy()
     rt.command("takeoff", alt_m=2.0)
     assert (rt.pilot.sp.x_m, rt.pilot.sp.y_m) == (float(est[0]), float(est[1]))  # target = where it THINKS it is
@@ -258,3 +268,49 @@ def test_buttons_use_the_estimate_and_still_land_safely_with_noise():
         if rt.pilot.mode == "idle":
             break
     assert rt.pilot.mode == "idle" and rt.state.on_ground  # disarmed on real ground contact, not mid-air
+
+
+# ---- GPS settle before arming ----
+
+
+def test_take_off_waits_for_gps_and_averaging_shrinks_the_error():
+    import numpy as np
+
+    rt = MissionSim(BASIC, seed=0)
+    assert "GPS settling for 5 s" in rt.command("sensors", enabled=True, noise_scale=3.0)
+    assert "GPS settling" in rt.command("takeoff") and rt.pilot.mode == "idle"
+    rt.advance(0.05)
+    rt.advance(0.05)
+    early = float(np.linalg.norm(rt.sim.estimate.pos_m[:2] - rt.state.pos_m[:2]))
+    assert rt.snapshot()["gps_settle_left_s"] > 4.5
+    settle_gps(rt)
+    late = float(np.linalg.norm(rt.sim.estimate.pos_m[:2] - rt.state.pos_m[:2]))
+    assert late < early and late < 0.3  # 50 averaged fixes: about 1/7 of a single fix's error
+    assert np.allclose(rt.sim.estimate.vel_m_s, 0.0)  # it knows it is standing still
+    assert "Taking off" in rt.command("takeoff")
+
+
+def test_no_settle_with_perfect_sensors_mid_flight_switch_or_after_landing():
+    rt = MissionSim(BASIC)
+    assert rt.gps_settle_left_s() == 0 and rt.snapshot()["gps_settle_left_s"] == 0
+    rt.command("takeoff", alt_m=2.0)
+    for _ in range(60):
+        rt.advance(0.05)
+    rt.command("sensors", enabled=True, noise_scale=1.0)  # switched on in the air: can't average, no wait
+    assert rt.gps_settle_left_s() == 0
+    rt.command("land")
+    for _ in range(200):
+        rt.advance(0.05)
+    assert rt.pilot.mode == "idle" and "Taking off" in rt.command("takeoff")  # already settled once
+
+
+def test_mission_waits_on_the_ground_for_gps_then_flies():
+    rt = MissionSim(BASIC)
+    rt.command("sensors", enabled=True, noise_scale=1.0)
+    rt.load_course("patrol")
+    assert "settle" in rt.start_mission("astar")
+    for _ in range(40):
+        rt.advance(0.05)
+    snap = rt.snapshot()
+    assert snap["mission"]["phase"] == "gps" and snap["pos_m"][2] < 0.01
+    assert run_live(rt)[-1] == "Landed at the final waypoint."

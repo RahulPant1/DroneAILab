@@ -64,6 +64,7 @@ class LightweightSim:
 
     def __init__(self) -> None:
         self.config: DroneConfig | None = None
+        self.ground_align = False  # live view: GPS settle on the ground before take-off (Lab runs: off)
 
     def reset(
         self,
@@ -121,6 +122,8 @@ class LightweightSim:
         if cfg.enabled:
             self.sensors = Sensors(cfg, np.random.default_rng([self.seed, self.step_count, 1]))
             self.estimator = Estimator(cfg, self.state, PHYSICS_DT_S)
+            # Switched on in the air: it can't stand still to average GPS, so skip the settle.
+            self.estimator.settled = not (self.ground_align and self.state.on_ground)
         else:
             self.sensors = None
             self.estimator = None
@@ -132,6 +135,8 @@ class LightweightSim:
 
     def step(self, command: Setpoint) -> State:
         """Advance one physics step (2 ms). The controller runs on every 2nd step."""
+        if self.estimator and self.ground_align:
+            self.estimator.set_stationary(not command.armed and self.state.on_ground)
         if self.step_count % CONTROL_EVERY_N_STEPS == 0:
             self.motor_pct = self.controller.update(self.estimate, command, PHYSICS_DT_S * CONTROL_EVERY_N_STEPS)
         wind = self.wind.step(self.state.time_s) if self.wind else None
@@ -159,6 +164,7 @@ class RealtimeSim:
 
     def __init__(self, config: DroneConfig, seed: int = 0):
         self.sim = LightweightSim()
+        self.sim.ground_align = True  # with sensor noise on: GPS must settle before take-off
         self.env = EnvConfig()  # wind; it stays the same across resets until changed
         self.sensor_cfg = SensorConfig()  # off = perfect sensors; also kept across resets
         self.reset(config, seed)
@@ -199,6 +205,9 @@ class RealtimeSim:
         """Handle a button press: takeoff | land | hover | pause | resume | reset | target | sticks."""
         s = self.sim.estimate  # buttons act on where the drone BELIEVES it is
         if cmd == "takeoff":
+            wait = self.gps_settle_left_s()
+            if wait > 0 and self.pilot.mode == "idle":
+                return self.pilot._say(f"GPS settling: {wait:.1f} s left. Take-off is allowed once the position estimate is steady.")
             return self.pilot.takeoff(s, args.get("alt_m"))
         if cmd == "land":
             return self.pilot.land(s)
@@ -234,6 +243,10 @@ class RealtimeSim:
             return "Wind off: calm air."
         return f"Wind {env.wind_speed_m_s:.1f} m/s toward {env.wind_direction_deg:.0f}°, gusts ±{env.gust_std_m_s:.1f} m/s."
 
+    def gps_settle_left_s(self) -> float:
+        """Pre-arm check: seconds until the GPS position has settled (0 with perfect sensors)."""
+        return self.sim.estimator.settle_left_s if self.sim.estimator else 0.0
+
     def set_sensors(self, enabled: bool, noise_scale=1.0) -> str:
         """Noisy sensors + estimator (the controller flies on its ESTIMATE), or perfect sensors (it sees the truth).
         The buttons' autopilot and collision checks always use the true position."""
@@ -245,7 +258,9 @@ class RealtimeSim:
         self.sensor_cfg = cfg
         if not enabled:
             return "Perfect sensors: the controller sees the true state."
-        return f"Sensor noise on ({cfg.noise_scale:g}× typical): the controller now flies on its estimate."
+        wait = self.gps_settle_left_s()
+        settle = f" GPS settling for {wait:.0f} s before take-off." if wait > 0 else ""
+        return f"Sensor noise on ({cfg.noise_scale:g}× typical): the controller now flies on its estimate.{settle}"
 
     def snapshot(self) -> dict:
         """A compact, JSON-friendly picture of 'right now' for the UI (SI units, radians)."""
@@ -270,6 +285,7 @@ class RealtimeSim:
             # Where the drone BELIEVES it is (only with sensor noise on), and how it believes it is tilted.
             "est_pos_m": r(self.sim.estimator.state.pos_m) if self.sim.estimator else None,
             "est_quat": r(self.sim.estimator.state.quat, 5) if self.sim.estimator else None,
+            "gps_settle_left_s": round(self.gps_settle_left_s(), 1),  # > 0: take-off not allowed yet
             "setpoint": {
                 "x_m": round(sp.x_m, 3),
                 "y_m": round(sp.y_m, 3),

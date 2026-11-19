@@ -25,6 +25,8 @@ from .physics import State
 from .sensors import BARO_EVERY_N_STEPS, GPS_EVERY_N_STEPS, IMU_EVERY_N_STEPS, Readings, SensorConfig
 
 COMPASS_CORRECTION_PER_S = 1.0
+GPS_HZ = 10.0
+GPS_SETTLE_S = 5.0  # pre-arm: average this long of GPS fixes on the ground before take-off is allowed
 ACCEL_TRUSTED_BAND = 0.15  # only use the accelerometer for tilt when it reads within ±15 % of g
 
 
@@ -47,15 +49,40 @@ class Estimator:
         self.baro_gains = alpha_beta_gains(cfg.baro_trust)
         self.gps_gains = alpha_beta_gains(cfg.gps_trust)
 
+        # Ground alignment ("GPS settle"): while the drone sits disarmed on the ground, it KNOWS it isn't moving.
+        # So instead of filtering, average every GPS fix (and altimeter reading) and hold the velocity at zero.
+        # Averaging N noisy fixes shrinks the error by about sqrt(N). Set by the sim each step.
+        self.stationary = False
+        self.settled = False  # latched once enough fixes have been averaged
+        self._gps_sum, self._gps_n = np.zeros(2), 0
+        self._baro_sum, self._baro_n = 0.0, 0
+
     @property
     def state(self) -> State:
         return self.est
+
+    @property
+    def settle_left_s(self) -> float:
+        """Seconds of ground averaging still needed before take-off is allowed (0 once settled)."""
+        return 0.0 if self.settled else max(0.0, GPS_SETTLE_S - self._gps_n / GPS_HZ)
+
+    def set_stationary(self, stationary: bool) -> None:
+        if stationary == self.stationary:
+            return
+        self.stationary = stationary
+        self._gps_sum, self._gps_n = np.zeros(2), 0  # each stay on the ground starts a fresh average
+        self._baro_sum, self._baro_n = 0.0, 0
 
     def update(self, r: Readings, time_s: float) -> State:
         e = self.est
         e.time_s = time_s
         if r.new_imu:
             self._predict(r)
+        if self.stationary:
+            self._ground_align(r)
+            if r.new_compass:
+                self._correct_heading(r.compass_rad)
+            return e
         if r.new_baro:
             self._correct_axis(2, r.baro_m, self.baro_gains, self.baro_dt_s)
         if r.new_gps:
@@ -87,6 +114,24 @@ class Estimator:
         dt = self.imu_dt_s
         e.pos_m = e.pos_m + e.vel_m_s * dt + 0.5 * accel_world * dt * dt
         e.vel_m_s = e.vel_m_s + accel_world * dt
+
+    def _ground_align(self, r: Readings) -> None:
+        """On the ground, disarmed: position = average of all fixes so far, velocity = 0."""
+        e = self.est
+        e.vel_m_s = np.zeros(3)
+        e.pos_m = e.pos_m.copy()
+        if r.new_gps:
+            self._gps_sum = self._gps_sum + r.gps_xy_m
+            self._gps_n += 1
+            if self._gps_n >= GPS_SETTLE_S * GPS_HZ:
+                self.settled = True
+        if r.new_baro:
+            self._baro_sum += r.baro_m
+            self._baro_n += 1
+        if self._gps_n:
+            e.pos_m[:2] = self._gps_sum / self._gps_n
+        if self._baro_n:
+            e.pos_m[2] = self._baro_sum / self._baro_n
 
     def _correct_axis(self, axis: int, measured: float, gains: tuple[float, float], dt_s: float) -> None:
         """Nudge position (and velocity) on one axis toward a position measurement."""

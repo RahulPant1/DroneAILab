@@ -68,12 +68,15 @@ export default function Controls({ follow, setFollow }: { follow: boolean; setFo
   const auto = s?.mode === 'mission'; // the mission autopilot is flying; Hover / Land / Go take over
   const flying = s?.mode === 'takeoff' || s?.mode === 'hover' || auto;
   const offline = status !== 'open';
+  const settling = (s?.gps_settle_left_s ?? 0) > 0 && s?.mode === 'idle';
 
   return (
     <div className="controls">
       <div className="row">
-        <button className="primary big" disabled={offline || flying || s?.mode === 'land'} onClick={() => sim.send('takeoff', { alt_m: alt })}>
-          🛫 Take off
+        <button className="primary big" disabled={offline || flying || s?.mode === 'land' || settling}
+          onClick={() => sim.send('takeoff', { alt_m: alt })}
+          title={settling ? 'Pre-arm check: the drone is averaging GPS fixes so it knows where it is before flying' : undefined}>
+          {settling ? `🛰 GPS settling ${s!.gps_settle_left_s.toFixed(1)} s` : '🛫 Take off'}
         </button>
         <label className="inline" title="Take-off altitude">
           to <input type="number" min={0.3} max={50} step={0.5} value={alt} onChange={(e) => setAlt(Number(e.target.value))} /> m
@@ -110,7 +113,7 @@ const PLANNER_LABELS: Record<string, string> = {
   astar: 'A* (plans ahead)',
 };
 
-const PHASE_LABELS: Record<string, string> = { takeoff: 'taking off', cruise: 'flying the route', land: 'landing' };
+const PHASE_LABELS: Record<string, string> = { gps: 'waiting for GPS to settle', takeoff: 'taking off', cruise: 'flying the route', land: 'landing' };
 
 /** Load a course into the 3D world, and let the mission autopilot fly it (or fly it yourself). */
 function MissionBar({ s, offline }: { s: SimState | null; offline: boolean }) {
@@ -231,7 +234,7 @@ function SensorBar({ status }: { status: string }) {
         <input type="range" min={0.5} max={3} step={0.25} value={sensors.level} disabled={off || !sensors.on} onChange={(e) => change({ level: Number(e.target.value) })} />
         <b className="wind-num">{sensors.level.toFixed(2)}</b>×
       </label>
-      {sensors.on && <span className="muted">Ghost outline = where the drone <i>thinks</i> it is. The controller steers the ghost, not the real drone.</span>}
+      {sensors.on && <span className="muted">Ghost outline = where the drone <i>thinks</i> it is. The controller steers the ghost, not the real drone. On the ground it averages GPS for 5 s before it may take off.</span>}
     </div>
   );
 }

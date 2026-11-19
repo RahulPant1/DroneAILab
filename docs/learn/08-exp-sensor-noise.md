@@ -35,3 +35,10 @@ GPS fly slower and with wider margins.
 
 Everything that flies the drone (the controller, the buttons and the mission autopilot) only knows the estimate.
 Try **Fly to** x 4, y 3 at 3x noise: it stops where it *thinks* the point is, often half a metre or more away.
+
+### GPS settle (pre-arm check)
+With noise on, the drone won't take off for the first 5 seconds. While it sits still on the ground it **knows** it
+isn't moving, so it averages every GPS fix instead of filtering. One fix can be half a metre off; the average of 50
+is about 7 times better (error shrinks with the square root of the number of fixes). Watch the pink ghost jump
+around at first and then settle onto the real drone. Real flight controllers do the same: they won't arm until the
+position estimate is steady.
