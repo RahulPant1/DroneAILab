@@ -19,6 +19,8 @@ from backend.sim.physics import State
 from backend.sim.pilot import Pilot
 from backend.sim.runner import RealtimeSim
 
+from backend.games.race import TRACKS, Race
+
 from .follower import Mission, MissionFollower
 from .mission import PLANNERS, SCENARIOS, MissionError, scenario_mission
 from .planner import PlanningError, plan_route
@@ -36,11 +38,17 @@ class MissionSim(RealtimeSim):
         self.route: list[tuple[float, float]] | None = None
         self.planner: str | None = None
         self.follower: MissionFollower | None = None
+        self.race: Race | None = None  # rings race (a game); never loaded together with a course
+        self._race_prev_pos = None
         super().__init__(config, seed)
 
     # ---- course ----
 
     def start_state(self) -> State | None:
+        if self.race:
+            s = State.at(0.0)
+            s.pos_m[:2] = self.race.track["start"]
+            return s
         if not self.mission:
             return None
         s = State.at(0.0)
@@ -51,6 +59,9 @@ class MissionSim(RealtimeSim):
         self.follower = None
         self.route = None
         self.planner = None
+        if self.race:
+            self.race.restart()  # Reset = try the race again
+        self._race_prev_pos = None
         super().reset(config, seed)
 
     def load_course(self, scenario_id: str | None) -> str:
@@ -59,10 +70,36 @@ class MissionSim(RealtimeSim):
             raise ValueError(f"Unknown course '{scenario_id}'. Choose one of: {', '.join(SCENARIOS)}.")
         self.course_id = scenario_id
         self.mission = scenario_mission(scenario_id) if scenario_id else None
+        self.race = None  # a course replaces a race
         self.reset()
         if not scenario_id:
             return "Free flight: no obstacles."
         return f"Loaded '{SCENARIOS[scenario_id]['title']}'. Fly it yourself, or press Fly mission."
+
+    def load_race(self, track_id: str | None) -> str:
+        """Load a rings-race track (or None to stop racing) and put the drone on its start pad."""
+        if track_id is not None and track_id not in TRACKS:
+            raise ValueError(f"Unknown track '{track_id}'. Choose one of: {', '.join(TRACKS)}.")
+        self.race = Race(track_id) if track_id else None
+        if track_id:
+            self.course_id, self.mission = None, None  # a race replaces a course
+        self.reset()
+        if not track_id:
+            return "Race off."
+        best = f" Best time so far: {self.race.best_s:.1f} s." if self.race.best_s is not None else ""
+        return f"Race: {self.race.track['title']}. {self.race.track['tip']} The clock starts at take-off.{best}"
+
+    def race_info(self) -> dict | None:
+        return self.race.info() if self.race else None
+
+    def _update_race(self, s: State) -> None:
+        """Check the rings once per physics step, on the TRUE position (passing a ring is a physical fact)."""
+        pos = s.pos_m.copy()
+        if self._race_prev_pos is not None:
+            for msg in self.race.update(self._race_prev_pos, pos, s.time_s, self.pilot.sp.armed):
+                self.notices.append(msg)
+                self.pilot.message = msg
+        self._race_prev_pos = pos
 
     def course_info(self) -> dict | None:
         """Everything the 3D view needs to draw the course (sent once per change, not every frame)."""
@@ -134,6 +171,8 @@ class MissionSim(RealtimeSim):
 
     def next_setpoint(self, dt_s: float) -> Setpoint:
         s = self.state
+        if self.race:
+            self._update_race(s)
         if self.follower and self.gps_settle_left_s() > 0:
             self.follower._t_last = s.time_s  # the autopilot's clock starts once it may take off
             return Setpoint(armed=False, position_control=True, x_m=float(s.pos_m[0]), y_m=float(s.pos_m[1]))
@@ -180,6 +219,8 @@ class MissionSim(RealtimeSim):
     def command(self, cmd: str, **args) -> str:
         if cmd == "course":
             return self.load_course(args.get("scenario") or None)
+        if cmd == "race":
+            return self.load_race(args.get("track") or None)
         if cmd == "mission":
             return self.start_mission(str(args.get("planner", "astar")), args.get("cruise_speed_m_s"))
         if self.follower:
@@ -196,4 +237,5 @@ class MissionSim(RealtimeSim):
             {"planner": self.planner, "phase": "gps" if self.gps_settle_left_s() > 0 else f.phase, "next_wp": f.next_wp, "waypoints_total": len(f.m.waypoints) - 1}
             if f else None
         )  # fmt: skip
+        snap["race"] = self.race.status(self.state.time_s) if self.race else None
         return snap

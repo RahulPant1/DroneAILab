@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import CourseView, { courseBounds } from './CourseView';
 import Label from './Label3D';
+import RaceView, { raceBounds } from './RaceView';
 import { sim, useSimUi, type Vec3 } from './sim';
 
 const ENU_TO_THREE: [number, number, number] = [-Math.PI / 2, 0, 0];
@@ -239,22 +240,22 @@ function WindArrow() {
 
 /** The loaded mission course (if any), and a camera move to show all of it whenever a different course loads. */
 function CourseLayer() {
-  const { course } = useSimUi();
-  return course ? <CourseView course={course} /> : null;
+  const { course, race } = useSimUi();
+  return <>{course && <CourseView course={course} />}{race && <RaceView race={race} />}</>;
 }
 
 function FrameCourse() {
-  const { course } = useSimUi();
+  const { course, race } = useSimUi();
   const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void } | null;
   const camera = useThree((s) => s.camera);
   const invalidate = useThree((s) => s.invalidate);
-  const id = course?.id ?? null;
+  const id = course ? `course:${course.id}` : race ? `race:${race.id}` : null;
   const last = useRef<string | null>(null);
   useEffect(() => {
     if (!controls || id === last.current) return;
     last.current = id;
-    if (course) {
-      const { cx, cy, span } = courseBounds(course);
+    if (course || race) {
+      const { cx, cy, span } = course ? courseBounds(course) : raceBounds(race!);
       controls.target.set(cx, 1, -cy); // three.js coords: (east, up, -north)
       camera.position.set(cx, 1 + span * 0.75, -cy + span * 0.95); // from the south, looking north
     } else {
@@ -263,7 +264,7 @@ function FrameCourse() {
     }
     controls.update();
     invalidate();
-  }, [id, course, controls, camera, invalidate]);
+  }, [id, course, race, controls, camera, invalidate]);
   return null;
 }
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Assistant from './Assistant';
 import { assistantStore, useAssistant } from './assistant';
 import Controls from './Controls';
+import { RaceHud } from './RaceView';
 import History from './History';
 import Lab from './Lab';
 import Learn from './Learn';
@@ -96,6 +97,7 @@ export default function App() {
             <div className="canvas-wrap">
               <Scene armLength={config?.arm_length_m ?? 0.225} follow={follow} />
               <MessageBar />
+              <RaceHud />
             </div>
             <Controls follow={follow} setFollow={setFollow} onLearn={setLearnSlug} />
           </section>

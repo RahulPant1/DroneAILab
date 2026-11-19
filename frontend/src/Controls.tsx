@@ -110,9 +110,42 @@ export default function Controls({ follow, setFollow, onLearn }: { follow: boole
         </label>
         <label className="inline"><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> camera follows</label>
       </div>
+      <RaceBar s={s} offline={offline} onLearn={onLearn} />
       <MissionBar s={s} offline={offline} onLearn={onLearn} />
       <WindBar status={status} onLearn={onLearn} />
       <SensorBar status={status} onLearn={onLearn} />
+    </div>
+  );
+}
+
+/** Rings race: pick a track, then fly through the hoops in order as fast as you can. */
+function RaceBar({ s, offline, onLearn }: { s: SimState | null; offline: boolean; onLearn: (slug: string) => void }) {
+  const { race } = useSimUi();
+  const [tracks, setTracks] = useState<Record<string, { title: string; best_s: number | null }>>({});
+  const finished = s?.race?.finished ?? false;
+  useEffect(() => {
+    // Refresh the list (with best times) at start and whenever a race finishes.
+    api.raceTracks().then((r) => setTracks(r.tracks)).catch(() => setTracks({}));
+  }, [finished]);
+
+  return (
+    <div className="row small race-bar">
+      <label className="inline" title="A game: fly through the hoops in order, in the direction of the arrows. The clock starts at take-off.">
+        🏁 Race
+        <select value={race?.id ?? ''} disabled={offline} onChange={(e) => sim.send('race', { track: e.target.value || null })}>
+          <option value="">No race</option>
+          {Object.entries(tracks).map(([id, t]) => (
+            <option key={id} value={id}>{t.title}{t.best_s !== null ? ` (best ${t.best_s.toFixed(1)} s)` : ''}</option>
+          ))}
+        </select>
+      </label>
+      {race && (
+        <>
+          <button disabled={offline} onClick={() => sim.send('reset')} title="Back to the start pad, clock to zero">↺ Race again</button>
+          <span className="muted">{race.tip}</span>
+        </>
+      )}
+      <button className="link" onClick={() => onLearn('10-rings-race')}>📖 Racing tips</button>
     </div>
   );
 }

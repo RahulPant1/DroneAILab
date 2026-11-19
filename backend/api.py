@@ -16,6 +16,7 @@
   POST /api/runs/delete-old            -> {keep_newest: N}
 
   GET  /api/missions/scenarios -> built-in mission courses
+  GET  /api/race/tracks       -> rings-race tracks + best times
   POST /api/missions/run       -> {mission: {waypoints, obstacles, cruise_alt_m, cruise_speed_m_s}, planner, wind_speed_m_s, seed}
 
   POST /api/assistant/ask      -> {question, context: [run refs], history} -> grounded answer
@@ -49,6 +50,7 @@ from .ai.ollama_client import AIError, AIOffline, OllamaClient
 from .experiments import EXPERIMENTS, ExperimentError, get_experiment
 from .sim.config import GAIN_LIMITS, LIMITS, PRESETS, ConfigError, DroneConfig, get_preset, validate_config
 from .autonomy.live import MissionSim
+from .games.race import TRACKS, load_best_times
 from .storage import RunStore, StorageError, compare
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -210,6 +212,13 @@ def delete_run(run_id: str) -> dict:
 # ---- Missions (Phase 4): custom courses; the built-in ones are Lab experiment 7 ----
 
 
+@app.get("/api/race/tracks")
+def race_tracks() -> dict:
+    """The rings-race tracks, with the best time on each (None = not finished yet)."""
+    best = load_best_times()
+    return {"tracks": {k: {"title": v["title"], "tip": v["tip"], "rings": len(v["rings"]), "best_s": best.get(k)} for k, v in TRACKS.items()}}
+
+
 @app.get("/api/missions/scenarios")
 def mission_scenarios() -> dict:
     return {
@@ -315,13 +324,15 @@ def handle_message(session: MissionSim, msg) -> dict | None:
             if problems:
                 return {"type": "error", "message": " ".join(problems)}
             session.reset(cfg)
-            return {"type": "config", "config": cfg.to_dict(), "course": session.course_info(), "message": f"Reset with '{cfg.name}'."}
+            return {"type": "config", "config": cfg.to_dict(), "course": session.course_info(), "race": session.race_info(),
+                    "message": f"Reset with '{cfg.name}'."}
         if cmd == "reset":
             session.reset()
-            return {"type": "config", "config": session.config.to_dict(), "course": session.course_info(), "message": "Reset."}
+            return {"type": "config", "config": session.config.to_dict(), "course": session.course_info(),
+                    "race": session.race_info(), "message": "Reset."}
         text = session.command(cmd, **args)
-        if cmd in ("course", "mission"):
-            return {"type": "course", "course": session.course_info(), "message": text}
+        if cmd in ("course", "mission", "race"):
+            return {"type": "course", "course": session.course_info(), "race": session.race_info(), "message": text}
         return {"type": "info", "message": text} if text else None
     except (ConfigError, ValueError, TypeError) as exc:
         return {"type": "error", "message": str(exc)}
@@ -332,7 +343,7 @@ async def ws_sim(ws: WebSocket) -> None:
     """One live simulation per browser tab. It stops when the tab disconnects."""
     await ws.accept()
     session = MissionSim(get_preset("basic"))
-    outbox: list[dict] = [{"type": "config", "config": session.config.to_dict(), "course": None, "message": "Connected."}]
+    outbox: list[dict] = [{"type": "config", "config": session.config.to_dict(), "course": None, "race": None, "message": "Connected."}]
 
     async def receive_loop() -> None:
         while True:

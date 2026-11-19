@@ -244,6 +244,15 @@ table.diff td:nth-child(3) { color: var(--muted); text-align: center; }
 .mission-bar { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; }
 .mission-status { color: var(--accent); font-weight: 600; }
 .course-legend { margin: 4px 0 0; }
+
+/* Rings race */
+.race-bar { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; }
+.race-hud { position: absolute; top: 12px; right: 12px; text-align: center; pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 75%, transparent); border: 1px solid var(--border); border-radius: 12px; padding: 6px 18px; }
+.race-time { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--warn); line-height: 1.1; }
+.race-sub { font-size: 14px; color: var(--text); }
+.race-hud.finished { border-color: var(--good); }
+.race-hud.finished .race-time { color: var(--good); }
 .wind-bar input[type=range], .sensor-bar input[type=range] { width: 90px; vertical-align: middle; }
 .sensor-bar > p { margin: 2px 0 0; }
 /* The failsafe and its own settings, boxed together so it's clear drag/tilt belong to it */

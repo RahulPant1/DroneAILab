@@ -310,3 +310,14 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
 - Convention notes: wind "toward, maths angle" vs weather-report "from, compass bearing" (lesson 07); yaw vs compass
   heading and NED (lesson 02).
 
+## Extra: rings race game (done 2026-11-19)
+- `backend/games/race.py`: tracks (first_flight, up_and_down, zig_zag, square_loop), upright rings (radius 0.9 m),
+  pass = the TRUE centre crosses the ring plane in the arrow direction within the radius, in order. Clock starts at
+  take-off (armed), stops at the last ring. Best times in `data/race_best.json` (gitignored); tests use a temp file.
+- Live: `MissionSim.load_race` (WS `race` cmd, reply carries `race` info); a race and a course replace each other;
+  Reset restarts the race. Snapshot `race` status. `GET /api/race/tracks`.
+- UI: 🏁 Race bar (track list with best times, Race again, tip), hoops in 3D (yellow glowing = next, green = done,
+  arrow cone, number, pole), start pad, big timer top-right. Lesson 10 "Racing tips" (kid-friendly, with answers).
+- Every track is finished by a simple "aim at each ring" autopilot in the tests: 5.2 / 7.1 / 8.1 / 8.8 s.
+- Tests: +8 (170).
+

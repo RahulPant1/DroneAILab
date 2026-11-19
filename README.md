@@ -22,6 +22,10 @@ Click **Take off**, then hold W/A/S/D (move), R/F (up/down), Q/E (turn).
 into the world. Fly it yourself (touching a box stops the motors), or choose a planner and press **▶ Fly mission**
 to watch the autopilot fly it live. Hover / Land take over from the autopilot.
 
+**🏁 Rings race (a game, great for kids):** pick a track under **🏁 Race** (4 tracks, easy first), press Take off,
+and fly through the glowing hoops in order, following the arrows. A big timer runs top-right; best times are
+saved in `data/race_best.json`. **↺ Race again** restarts. Tips: the 📖 Racing tips button (lesson 10).
+
 **Wind (live):** the 🌬 Wind sliders under the 3D view set a steady wind, its direction and gusts. Changes apply
 mid-flight; an arrow above the drone shows the air's motion right now.
 **Sensor noise (live):** tick 📡 Sensor noise to fly on realistic noisy sensors. A pink ghost outline shows where the
