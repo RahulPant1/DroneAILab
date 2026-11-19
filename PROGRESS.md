@@ -289,6 +289,8 @@ ones); the obstacles are known in advance (no sensing).
   5.3 m (8°) -> 3.3 m (8° + drag); holding W: top speed 7.2 -> 2.7 m/s; it stops by itself within ~6 s.
 - Drag slider (0–1 N·s/m, default 0.4) next to the failsafe box; WS `gps` takes `drag_n_s_m`; kept across resets.
   0 = real physics (still coasting > 1 m/s 6 s after letting go).
+- Tilt slider (2–20°, default 8°) beside it; WS `gps` takes `tilt_deg`; `Pilot.tilt_from_sticks(max_tilt_rad)`;
+  kept across resets.
 - Directions checked at headings 0° and 90° (W = nose direction, A = its left). The keys hint under the 3D view
   switches to the tilt meaning in failsafe.
 - Tests: 158 pass (+3).

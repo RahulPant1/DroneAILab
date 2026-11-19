@@ -154,10 +154,10 @@ class Pilot:
         self.sp.alt_m = max(MIN_FLY_ALT_M, min(MAX_FLY_ALT_M, alt))
         self.sp.yaw_rad = math.remainder(self.sp.yaw_rad + s.yaw * NUDGE_YAW_RAD_S * dt_s, 2 * math.pi)
 
-    def tilt_from_sticks(self) -> tuple[float, float]:
-        """Attitude mode: (roll, pitch) from the keys. W = nose down = go forward (+pitch);
-        A = left side down = go left (-roll). Let go and the drone levels out, but keeps coasting."""
-        return -self.sticks.left * FAILSAFE_TILT_RAD, self.sticks.forward * FAILSAFE_TILT_RAD
+    def tilt_from_sticks(self, max_tilt_rad: float = FAILSAFE_TILT_RAD) -> tuple[float, float]:
+        """Attitude mode: (roll, pitch) from the keys; a full press tilts `max_tilt_rad`. W = nose down = go forward
+        (+pitch); A = left side down = go left (-roll). Let go and the drone levels out, but keeps coasting."""
+        return -self.sticks.left * max_tilt_rad, self.sticks.forward * max_tilt_rad
 
     def _say(self, message: str) -> str:
         self.message = message

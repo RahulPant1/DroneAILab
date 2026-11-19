@@ -11,6 +11,7 @@ Two ways to run it:
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass, field, replace
 from typing import Callable, Protocol
 
@@ -22,7 +23,7 @@ from .environment import EnvConfig, Wind, validate_env
 from .estimator import Estimator
 from .metrics import altitude_step_metrics, horizontal_drift_m, mean_motor_pct
 from .physics import QuadcopterPhysics, State
-from .pilot import Pilot, Sticks
+from .pilot import FAILSAFE_TILT_RAD, Pilot, Sticks
 from .sensors import SensorConfig, Sensors, validate_sensors
 
 PHYSICS_DT_S = 0.002  # 500 Hz
@@ -157,6 +158,7 @@ GPS_FAILSAFE_AFTER_S = 1.0  # GPS lost this long -> stop trusting the position e
 # doesn't coast so far when you steer it without GPS. Speed now halves in about 1.4 s instead of ~7 s.
 FAILSAFE_EXTRA_DRAG_N_S_M = 0.4  # default; the live view has a slider (0 = real physics)
 MAX_FAILSAFE_DRAG_N_S_M = 1.0
+MIN_FAILSAFE_TILT_DEG, MAX_FAILSAFE_TILT_DEG = 2.0, 20.0  # the live view's tilt slider range
 MAX_CATCH_UP_S = 0.1  # if the server stalls, skip ahead rather than racing to catch up
 
 
@@ -175,6 +177,7 @@ class RealtimeSim:
         self.gps_outage = False  # no GPS fixes (only matters with sensor noise on); kept across resets
         self.gps_failsafe = True  # on GPS loss: hold level + altitude instead of trusting a drifting position
         self.failsafe_drag_n_s_m = FAILSAFE_EXTRA_DRAG_N_S_M  # extra air drag while the failsafe is active
+        self.failsafe_tilt_rad = FAILSAFE_TILT_RAD  # how far a full W/A/S/D press tilts the drone in failsafe
         self._gps_lost_at_s = 0.0
         self._failsafe_was_on = False
         self.reset(config, seed)
@@ -228,7 +231,7 @@ class RealtimeSim:
         self.sim.physics.extra_drag_n_s_m = self.failsafe_drag_n_s_m if on else 0.0
         if not on:
             return sp
-        roll, pitch = self.pilot.tilt_from_sticks()
+        roll, pitch = self.pilot.tilt_from_sticks(self.failsafe_tilt_rad)
         return replace(sp, position_control=False, roll_rad=roll, pitch_rad=pitch)
 
     @property
@@ -274,9 +277,9 @@ class RealtimeSim:
         if cmd == "sensors":
             return self.set_sensors(bool(args.get("enabled", False)), args.get("noise_scale", 1.0), bool(args.get("gps_noise", True)))
         if cmd == "gps":
-            drag = args.get("drag_n_s_m")
+            drag, tilt = args.get("drag_n_s_m"), args.get("tilt_deg")
             return self.set_gps(bool(args.get("outage", False)), bool(args.get("failsafe", True)),
-                                None if drag is None else float(drag))
+                                None if drag is None else float(drag), None if tilt is None else float(tilt))
         if cmd == "sticks":
             self.pilot.set_sticks(Sticks(**{k: float(args.get(k, 0.0)) for k in ("forward", "left", "up", "yaw")}))
             return ""
@@ -294,18 +297,27 @@ class RealtimeSim:
             return "Wind off: calm air."
         return f"Wind {env.wind_speed_m_s:.1f} m/s toward {env.wind_direction_deg:.0f}°, gusts ±{env.gust_std_m_s:.1f} m/s."
 
-    def set_gps(self, outage: bool, failsafe: bool = True, drag_n_s_m: float | None = None) -> str:
+    def set_gps(self, outage: bool, failsafe: bool = True, drag_n_s_m: float | None = None,
+                tilt_deg: float | None = None) -> str:
         """GPS outage on/off (mid-flight is fine), whether the GPS-loss failsafe is armed, and (optionally) the
-        failsafe's extra air drag in N per m/s (0 = real physics: the drone coasts on and on)."""
-        if drag_n_s_m is not None:
-            if not 0.0 <= drag_n_s_m <= MAX_FAILSAFE_DRAG_N_S_M:
-                raise ValueError(f"Failsafe drag must be between 0 and {MAX_FAILSAFE_DRAG_N_S_M} N per m/s.")
-            changed = drag_n_s_m != self.failsafe_drag_n_s_m
+        failsafe's extra air drag in N per m/s (0 = real physics: the drone coasts on and on) and how far a full
+        W/A/S/D press tilts the drone in failsafe, in degrees."""
+        if drag_n_s_m is not None and not 0.0 <= drag_n_s_m <= MAX_FAILSAFE_DRAG_N_S_M:
+            raise ValueError(f"Failsafe drag must be between 0 and {MAX_FAILSAFE_DRAG_N_S_M} N per m/s.")
+        if tilt_deg is not None and not MIN_FAILSAFE_TILT_DEG <= tilt_deg <= MAX_FAILSAFE_TILT_DEG:
+            raise ValueError(f"Failsafe tilt must be between {MIN_FAILSAFE_TILT_DEG:.0f} and {MAX_FAILSAFE_TILT_DEG:.0f} degrees.")
+        said: list[str] = []
+        if drag_n_s_m is not None and drag_n_s_m != self.failsafe_drag_n_s_m:
             self.failsafe_drag_n_s_m = drag_n_s_m
-            if changed and outage == self.gps_outage and failsafe == self.gps_failsafe:
-                how = ("none: real physics, it coasts until you counter-steer" if drag_n_s_m == 0
-                       else f"speed halves every {0.693 * self.config.mass_kg / (self.config.drag_linear_n_s_m + drag_n_s_m):.1f} s when you let go")
-                return f"Failsafe drag {drag_n_s_m:.1f} N per m/s ({how})."
+            how = ("none: real physics, it coasts until you counter-steer" if drag_n_s_m == 0
+                   else f"speed halves every {0.693 * self.config.mass_kg / (self.config.drag_linear_n_s_m + drag_n_s_m):.1f} s when you let go")
+            said.append(f"Failsafe drag {drag_n_s_m:.1f} N per m/s ({how}).")
+        if tilt_deg is not None and abs(math.radians(tilt_deg) - self.failsafe_tilt_rad) > 1e-9:
+            self.failsafe_tilt_rad = math.radians(tilt_deg)
+            accel = 9.81 * math.tan(self.failsafe_tilt_rad)
+            said.append(f"Failsafe tilt {tilt_deg:.0f}° (a full W/A/S/D press speeds it up by {accel:.1f} m/s every second).")
+        if said and outage == self.gps_outage and failsafe == self.gps_failsafe:
+            return " ".join(said)
         if outage and not self.gps_outage:
             self._gps_lost_at_s = self.state.time_s
         self.gps_outage, self.gps_failsafe = outage, failsafe

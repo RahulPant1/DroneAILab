@@ -64,4 +64,5 @@ for a moment. That's exactly what makes flying without GPS hard. When GPS return
 To make this less frustrating, the simulator adds some **extra air drag during the failsafe** (a "training
 wheels" helper, not real physics): a 1.5 s press of W now carries the drone about 3 m and it stops by itself within
 about 6 s, instead of about 12 m and still moving. A real drone has no such help: it keeps coasting until you stop it. Use the **drag** slider next to the failsafe box to change it: set
-it to **0** to fly it like a real drone, or higher to make it stop sooner.
+it to **0** to fly it like a real drone, or higher to make it stop sooner. The **tilt** slider sets how far a full
+key press tilts the drone (default 8°): more tilt speeds it up faster, but makes it harder to stop.

@@ -482,3 +482,23 @@ def test_failsafe_drag_setting_zero_means_real_physics_and_it_keeps_coasting():
     assert rt.failsafe_drag_n_s_m == 0.0  # the setting survives a reset, like wind and sensors
     with _pytest.raises(ValueError):
         rt.command("gps", outage=True, drag_n_s_m=5.0)
+
+
+def test_failsafe_tilt_setting_changes_how_hard_w_pushes_and_survives_a_reset():
+    import math
+
+    import numpy as np
+    import pytest as _pytest
+
+    moved = {}
+    for deg in (4.0, 16.0):
+        rt, _ = outage_drift(failsafe=True, seconds=1.5)
+        msg = rt.command("gps", outage=True, failsafe=True, tilt_deg=deg)
+        assert "Failsafe tilt" in msg
+        moved[deg] = float(np.hypot(*press(rt, seconds=1.5, coast_s=0.5, forward=1.0)))
+        assert math.degrees(rt.failsafe_tilt_rad) == _pytest.approx(deg)
+    assert moved[16.0] > 2.5 * moved[4.0]
+    rt.reset()
+    assert math.degrees(rt.failsafe_tilt_rad) == _pytest.approx(16.0)
+    with _pytest.raises(ValueError):
+        rt.command("gps", outage=True, tilt_deg=45.0)
