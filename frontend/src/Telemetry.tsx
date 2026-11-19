@@ -28,7 +28,14 @@ export default function Telemetry({ onLearn }: { onLearn: (slug: string) => void
         <thead><tr><th></th><th>East x</th><th>North y</th><th>Up z</th></tr></thead>
         <tbody>
           <tr><th title="Position in the world (metres from the start point)">Position (m)</th>{s.pos_m.map((v, i) => <td key={i}>{f(v)}</td>)}</tr>
-          <tr><th title="Where the controller is trying to go">Target (m)</th><td>{f(s.setpoint.x_m)}</td><td>{f(s.setpoint.y_m)}</td><td>{f(s.setpoint.alt_m)}</td></tr>
+          {s.failsafe ? (
+            <tr className="gps-lost">
+              <th title="In failsafe the drone does NOT fly to this point: it only holds level and height (W/A/S/D tilt it). The point is kept, and when GPS returns the drone flies back to it. Height is still held.">Target (frozen)</th>
+              <td>{f(s.setpoint.x_m)}</td><td>{f(s.setpoint.y_m)}</td><td>{f(s.setpoint.alt_m)}</td>
+            </tr>
+          ) : (
+            <tr><th title="Where the controller is trying to go">Target (m)</th><td>{f(s.setpoint.x_m)}</td><td>{f(s.setpoint.y_m)}</td><td>{f(s.setpoint.alt_m)}</td></tr>
+          )}
           <tr><th title="Velocity in the world frame">Velocity (m/s)</th>{s.vel_m_s.map((v, i) => <td key={i}>{f(v)}</td>)}</tr>
         </tbody>
       </table>

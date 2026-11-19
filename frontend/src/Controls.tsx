@@ -59,7 +59,7 @@ function useKeyboardSticks(): void {
   }, []);
 }
 
-export default function Controls({ follow, setFollow }: { follow: boolean; setFollow: (v: boolean) => void }) {
+export default function Controls({ follow, setFollow, onLearn }: { follow: boolean; setFollow: (v: boolean) => void; onLearn: (slug: string) => void }) {
   useKeyboardSticks();
   const { status } = useSimUi();
   const s = useThrottledState(5);
@@ -90,7 +90,11 @@ export default function Controls({ follow, setFollow }: { follow: boolean; setFo
       <div className="row small">
         {s?.failsafe ? (
           <span className="keys gps-lost" title="GPS-loss failsafe: no position hold. The keys tilt the drone directly; it keeps coasting until you tilt the other way.">
-            Failsafe: <kbd>W</kbd><kbd>S</kbd><kbd>A</kbd><kbd>D</kbd> <b>tilt</b> the drone (it coasts, slowed by extra failsafe drag: counter-steer to stop sooner) · <kbd>R</kbd><kbd>F</kbd> up/down · <kbd>Q</kbd><kbd>E</kbd> turn
+            Failsafe: <kbd>W</kbd><kbd>S</kbd><kbd>A</kbd><kbd>D</kbd> <b>tilt</b> the drone {s.failsafe_tilt_deg.toFixed(0)}°
+            {s.failsafe_drag_n_s_m > 0
+              ? ' (it coasts, slowed by the extra failsafe drag: counter-steer to stop sooner)'
+              : ' (real physics: it coasts until you tilt the other way)'}
+            {' '}· <kbd>R</kbd><kbd>F</kbd> up/down · <kbd>Q</kbd><kbd>E</kbd> turn
           </span>
         ) : (
           <span className="keys">
@@ -106,9 +110,9 @@ export default function Controls({ follow, setFollow }: { follow: boolean; setFo
         </label>
         <label className="inline"><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> camera follows</label>
       </div>
-      <MissionBar s={s} offline={offline} />
-      <WindBar status={status} />
-      <SensorBar status={status} />
+      <MissionBar s={s} offline={offline} onLearn={onLearn} />
+      <WindBar status={status} onLearn={onLearn} />
+      <SensorBar status={status} onLearn={onLearn} />
     </div>
   );
 }
@@ -122,7 +126,7 @@ const PLANNER_LABELS: Record<string, string> = {
 const PHASE_LABELS: Record<string, string> = { gps: 'waiting for GPS to settle', takeoff: 'taking off', cruise: 'flying the route', land: 'landing' };
 
 /** Load a course into the 3D world, and let the mission autopilot fly it (or fly it yourself). */
-function MissionBar({ s, offline }: { s: SimState | null; offline: boolean }) {
+function MissionBar({ s, offline, onLearn }: { s: SimState | null; offline: boolean; onLearn: (slug: string) => void }) {
   const { course } = useSimUi();
   const [scenarios, setScenarios] = useState<Record<string, { title: string }>>({});
   const [planner, setPlanner] = useState('astar');
@@ -160,6 +164,7 @@ function MissionBar({ s, offline }: { s: SimState | null; offline: boolean }) {
             </button>
           </>
         )}
+        <button className="link" onClick={() => onLearn('09-exp-missions')}>📖 Learn: missions</button>
         <span className="spacer" />
         {m && (
           <span className="mission-status">
@@ -179,7 +184,7 @@ function MissionBar({ s, offline }: { s: SimState | null; offline: boolean }) {
 }
 
 /** Live wind: changes apply at once, mid-flight, and stay through Reset and new missions. */
-function WindBar({ status }: { status: string }) {
+function WindBar({ status, onLearn }: { status: string; onLearn: (slug: string) => void }) {
   const [wind, setWind] = useState({ speed: 0, dir: 0, gust: 0 });
   const send = (w: typeof wind) => sim.send('wind', { speed_m_s: w.speed, direction_deg: w.dir, gust_m_s: w.gust });
   const change = (patch: Partial<typeof wind>) => {
@@ -212,12 +217,14 @@ function WindBar({ status }: { status: string }) {
         <b className="wind-num">{wind.gust.toFixed(2)}</b> m/s
       </label>
       <button disabled={off || (wind.speed === 0 && wind.gust === 0)} onClick={() => change({ speed: 0, gust: 0 })}>Calm</button>
+      <button className="link" onClick={() => onLearn('07-exp-wind')}>📖 Learn: wind</button>
     </div>
   );
 }
 
-/** Noisy sensors on/off. With them on, the controller flies on its ESTIMATE (the ghost drone in 3D). */
-function SensorBar({ status }: { status: string }) {
+/** Noisy sensors on/off. With them on, the controller flies on its ESTIMATE (the ghost drone in 3D).
+ *  Second row: GPS outage and the GPS-loss failsafe, with the failsafe's own settings grouped together. */
+function SensorBar({ status, onLearn }: { status: string; onLearn: (slug: string) => void }) {
   const [sensors, setSensors] = useState({ on: false, level: 1, gps: true, outage: false, failsafe: true, drag: 0.4, tilt: 8 });
   const change = (patch: Partial<typeof sensors>) => {
     const v = { ...sensors, ...patch };
@@ -234,37 +241,53 @@ function SensorBar({ status }: { status: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
   const off = status !== 'open';
+  const gpsOff = off || !sensors.on; // GPS settings only matter when the drone flies on its estimate
+  const fsOff = gpsOff || !sensors.failsafe;
 
   return (
-    <div className="row small sensor-bar">
-      <label className="inline" title="Off = perfect sensors: the controller knows exactly where the drone is. On = real-ish gyro, accelerometer, altimeter, compass and GPS noise, and an estimator that guesses the state from them.">
-        <input type="checkbox" checked={sensors.on} disabled={off} onChange={(e) => change({ on: e.target.checked })} /> 📡 Sensor noise
-      </label>
-      <label className="inline" title="1 = typical hobby sensors, 3 = poor ones">
-        level
-        <input type="range" min={0.5} max={3} step={0.25} value={sensors.level} disabled={off || !sensors.on} onChange={(e) => change({ level: Number(e.target.value) })} />
-        <b className="wind-num">{sensors.level.toFixed(2)}</b>×
-      </label>
-      <label className="inline" title="Untick for a perfect GPS while the other sensors (gyro, accelerometer, altimeter, compass) stay noisy. Shows how much of the drift comes from the GPS.">
-        <input type="checkbox" checked={sensors.gps} disabled={off || !sensors.on} onChange={(e) => change({ gps: e.target.checked })} /> 🛰 GPS noise
-      </label>
-      <label className="inline" title="No GPS fixes at all (jamming, indoors, under a bridge). Position then comes from the motion sensors only, and drifts away fast.">
-        <input type="checkbox" checked={sensors.outage} disabled={off || !sensors.on} onChange={(e) => change({ outage: e.target.checked })} /> 📵 GPS outage
-      </label>
-      <label className="inline" title="On GPS loss: after 1 s, stop trusting the drifting position. Hold level and altitude instead (missions are aborted). Untick to see what happens if the drone keeps trusting it.">
-        <input type="checkbox" checked={sensors.failsafe} disabled={off || !sensors.on} onChange={(e) => change({ failsafe: e.target.checked })} /> failsafe
-      </label>
-      <label className="inline" title="Extra air drag while the failsafe is active, so the drone coasts to a stop when you let go of W/A/S/D. Not real physics (a 'training wheels' helper): 0 = a real drone, which coasts until you counter-steer. The drone's own drag is 0.1.">
-        drag
-        <input type="range" min={0} max={1} step={0.1} value={sensors.drag} disabled={off || !sensors.on || !sensors.failsafe} onChange={(e) => change({ drag: Number(e.target.value) })} />
-        <b className="wind-num">{sensors.drag.toFixed(1)}</b> N·s/m
-      </label>
-      <label className="inline" title="How far a full W/A/S/D press tilts the drone in failsafe. More tilt = it speeds up faster (and is harder to stop).">
-        tilt
-        <input type="range" min={2} max={20} step={1} value={sensors.tilt} disabled={off || !sensors.on || !sensors.failsafe} onChange={(e) => change({ tilt: Number(e.target.value) })} />
-        <b className="wind-num">{sensors.tilt}</b>°
-      </label>
-      {sensors.on && <span className="muted">Ghost outline = where the drone <i>thinks</i> it is. The controller steers the ghost, not the real drone. On the ground it averages GPS for 5 s before it may take off.</span>}
+    <div className="sensor-bar">
+      <div className="row small">
+        <label className="inline" title="Off = perfect sensors: the controller knows exactly where the drone is. On = real-ish gyro, accelerometer, altimeter, compass and GPS noise, and an estimator that guesses the state from them.">
+          <input type="checkbox" checked={sensors.on} disabled={off} onChange={(e) => change({ on: e.target.checked })} /> 📡 Sensor noise
+        </label>
+        <label className="inline" title="1 = typical hobby sensors, 3 = poor ones">
+          level
+          <input type="range" min={0.5} max={3} step={0.25} value={sensors.level} disabled={gpsOff} onChange={(e) => change({ level: Number(e.target.value) })} />
+          <b className="wind-num">{sensors.level.toFixed(2)}</b>×
+        </label>
+        <label className="inline" title="Untick for a perfect GPS while the other sensors (gyro, accelerometer, altimeter, compass) stay noisy. Shows how much of the drift comes from the GPS.">
+          <input type="checkbox" checked={sensors.gps} disabled={gpsOff} onChange={(e) => change({ gps: e.target.checked })} /> 🛰 GPS noise
+        </label>
+        <button className="link" onClick={() => onLearn('08-exp-sensor-noise')}>📖 Learn: sensors, GPS and failsafe</button>
+      </div>
+      <div className="row small">
+        <label className="inline" title="No GPS fixes at all (jamming, indoors, under a bridge). Position then comes from the motion sensors only, and drifts away fast.">
+          <input type="checkbox" checked={sensors.outage} disabled={gpsOff} onChange={(e) => change({ outage: e.target.checked })} /> 📵 GPS outage
+        </label>
+        <span className={`failsafe-group ${fsOff ? 'is-off' : ''}`}>
+          <label className="inline" title="On GPS loss: after 1 s, stop trusting the drifting position. Hold level and altitude instead (missions are aborted). Untick to see what happens if the drone keeps trusting it.">
+            <input type="checkbox" checked={sensors.failsafe} disabled={gpsOff} onChange={(e) => change({ failsafe: e.target.checked })} /> 🛟 Failsafe
+          </label>
+          <label className="inline" title="Extra air drag while the failsafe is active, so the drone coasts to a stop when you let go of W/A/S/D. Not real physics (a 'training wheels' helper): 0 = a real drone, which coasts until you counter-steer. The drone's own drag is 0.1. Needs the failsafe ticked.">
+            drag
+            <input type="range" min={0} max={1} step={0.1} value={sensors.drag} disabled={fsOff} onChange={(e) => change({ drag: Number(e.target.value) })} />
+            <b className="wind-num">{sensors.drag.toFixed(1)}</b> N·s/m{sensors.drag === 0 && ' (real)'}
+          </label>
+          <label className="inline" title="How far a full W/A/S/D press tilts the drone in failsafe. More tilt = it speeds up faster (and is harder to stop). Needs the failsafe ticked.">
+            tilt
+            <input type="range" min={2} max={20} step={1} value={sensors.tilt} disabled={fsOff} onChange={(e) => change({ tilt: Number(e.target.value) })} />
+            <b className="wind-num">{sensors.tilt}</b>°
+          </label>
+        </span>
+        <span className="muted">
+          {!sensors.on
+            ? 'Tick 📡 Sensor noise first: with perfect sensors the drone always knows where it is, so GPS settings change nothing.'
+            : !sensors.failsafe
+              ? 'Failsafe off: on GPS loss the drone keeps trusting its drifting position (drag and tilt unused).'
+              : 'Failsafe: 1 s after GPS is lost it holds level + height, and W/A/S/D tilt the drone.'}
+        </span>
+      </div>
+      {sensors.on && <p className="muted small">Ghost outline = where the drone <i>thinks</i> it is. The controller steers the ghost, not the real drone. On the ground it averages GPS for 5 s before it may take off.</p>}
     </div>
   );
 }

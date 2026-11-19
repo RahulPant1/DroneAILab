@@ -19,3 +19,8 @@ Every gram you add (a bigger battery, a camera) eats headroom. A bigger battery 
 1. A 1.5 kg drone hovers at 60 % throttle. What will it hover at with a 0.5 kg payload added?
 2. Why doesn't arm length change the hover throttle?
 3. What happens to headroom as mass goes up, and why does that make the drone feel sluggish?
+
+## Answers
+1. Hover throttle is proportional to mass: 60 % × 2.0 ÷ 1.5 = **80 %**.
+2. Hover only needs thrust = weight (m · g). Arm length changes the *leverage* for tilting (how fast it can rotate), not how much lift is needed.
+3. Headroom (100 % − hover %) shrinks. Less spare thrust means slower climbs, weaker braking and less tilt, and the motors saturate sooner.

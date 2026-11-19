@@ -10,6 +10,12 @@ In DroneLab, z points up, x is the drone's nose, and y is its left side.
 
 (Aircraft books often use "pitch + = nose up". We follow the robotics convention with z up, so watch the sign.)
 
+**Yaw vs compass heading.** Our yaw is a maths angle: 0 = east, counting counter-clockwise (90° = north).
+A compass heading is the other way round: 0° = north, counting clockwise (90° = east). To convert:
+**heading = 90° − yaw** (add 360° if negative). So yaw 0 = heading 90° (east), and yaw 90° = heading 0° (north).
+Real flight software (PX4, ArduPilot) uses compass headings, and often a frame with z pointing **down** (called
+NED: north, east, down), so expect the signs to flip when you move to real tools.
+
 ## How 4 motors make each move
 Motors: M1 front-right, M2 rear-left (both spin counter-clockwise), M3 front-left, M4 rear-right (both clockwise).
 - **Climb:** all four speed up equally.
@@ -33,3 +39,8 @@ Target position → wanted speed → wanted acceleration → **tilt angles** →
 1. The drone faces east (yaw 0) and you want it to go north. Which angle must change, and with which sign?
 2. Why can't the drone just "push sideways" without tilting?
 3. While hovering, M3 and M4 speed up and M1 and M2 slow down by the same amount. What happens?
+
+## Answers
+1. North is on the drone's **left**, so it must roll left: **roll negative** (left side down). Pitch and yaw stay the same.
+2. Propellers can only push along the drone's own "up" axis; there's no sideways thruster. Tilting points part of that push sideways.
+3. Total thrust stays the same, so the height holds. The clockwise pair (M3, M4) wins the drag-torque contest, so the drone **turns left** (yaw increases).

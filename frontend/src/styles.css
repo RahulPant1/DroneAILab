@@ -123,6 +123,9 @@ table.nums tbody th { text-align: left; color: var(--muted); font-size: 12px; cu
 .modal pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; overflow-x: auto; font-size: 12.5px; }
 .modal code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
 .modal .close { position: absolute; right: 12px; top: 12px; }
+.modal h4 { font-size: 13.5px; margin: 14px 0 4px; }
+.modal details.answers { margin-top: 18px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; background: var(--panel-2); }
+.modal details.answers summary { cursor: pointer; color: var(--accent); font-weight: 600; }
 
 /* ---- Narrow screens: stack the panels ---- */
 @media (max-width: 1000px) {
@@ -241,6 +244,10 @@ table.diff td:nth-child(3) { color: var(--muted); text-align: center; }
 .mission-bar { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; }
 .mission-status { color: var(--accent); font-weight: 600; }
 .course-legend { margin: 4px 0 0; }
-.wind-bar input[type=range] { width: 90px; vertical-align: middle; }
+.wind-bar input[type=range], .sensor-bar input[type=range] { width: 90px; vertical-align: middle; }
+.sensor-bar > p { margin: 2px 0 0; }
+/* The failsafe and its own settings, boxed together so it's clear drag/tilt belong to it */
+.failsafe-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; }
+.failsafe-group.is-off { opacity: 0.7; }
 .wind-num { display: inline-block; min-width: 2.6em; text-align: right; }
 .gps-lost { color: var(--bad); }

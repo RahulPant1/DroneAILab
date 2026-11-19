@@ -19,3 +19,8 @@ Real multirotors are designed for T/W ≈ 2 (a camera drone) up to 5+ (a racing 
 1. A drone with T/W 2.5 hovers at what throttle?
 2. Why does a low-T/W drone climb slowly even though its controller asks for a fast climb?
 3. The drone weighs 12 N. What is the least max thrust that lets it climb at all?
+
+## Answers
+1. 100 % ÷ 2.5 = **40 %**.
+2. The motors hit 100 % (saturate). The upward acceleration is (max thrust − weight) ÷ mass, which is small when there's little spare thrust, whatever the controller asks for.
+3. **More than 12 N.** Exactly 12 N only balances the weight (hover); it needs a little more to climb.

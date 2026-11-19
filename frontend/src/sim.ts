@@ -27,6 +27,8 @@ export interface SimState {
   gps_outage: boolean; // no GPS fixes (only with sensor noise on)
   gps_lost_s: number; // how long the outage has lasted
   failsafe: boolean; // GPS-loss failsafe active: holding level + altitude, NOT position
+  failsafe_drag_n_s_m: number; // extra air drag while in failsafe (0 = real physics: it keeps coasting)
+  failsafe_tilt_deg: number; // how far a full W/A/S/D press tilts the drone in failsafe
   setpoint: { x_m: number; y_m: number; alt_m: number; yaw_rad: number };
   message: string;
   mission: MissionStatus | null; // set while the mission autopilot is flying

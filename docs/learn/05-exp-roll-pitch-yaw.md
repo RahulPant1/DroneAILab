@@ -19,3 +19,8 @@ A higher angle gain gives a faster rotation, but past a point it overshoots. A l
 1. Which motors speed up for a nose-down pitch? Why those?
 2. Why is yaw the slowest of the three rotations?
 3. After a 2-second 15° roll, the drone is level again but still moving sideways. Why?
+
+## Answers
+1. The **rear** motors (M2, M4). Pushing the back up tips the nose down.
+2. Yaw torque comes from the propellers' air drag, which is much weaker than thrust × arm length. Total thrust must also stay the same while yawing, and the drone is hardest to turn about its vertical axis.
+3. Levelling stops the **acceleration**, not the motion. The drone keeps the speed it built up (Newton's first law); only air drag slowly takes it away.

@@ -97,7 +97,7 @@ export default function App() {
               <Scene armLength={config?.arm_length_m ?? 0.225} follow={follow} />
               <MessageBar />
             </div>
-            <Controls follow={follow} setFollow={setFollow} />
+            <Controls follow={follow} setFollow={setFollow} onLearn={setLearnSlug} />
           </section>
           <Telemetry onLearn={setLearnSlug} />
         </main>

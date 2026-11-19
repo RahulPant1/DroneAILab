@@ -296,3 +296,17 @@ ones); the obstacles are known in advance (no sensing).
 - Tests: 158 pass (+3).
 
 ## Next: Roadmap items (PX4/Gazebo, ROS 2, vision, …) only with explicit approval.
+
+## Extra: learner review fixes (done 2026-11-19)
+Reviewed the app as a beginner would (a full Fly-view session over the WebSocket, plus the screens and lessons). All flows worked; fixed:
+- Failsafe key hint was wrong at drag 0 (always said "slowed by drag"); it now reads the server's `failsafe_drag_n_s_m` /
+  `failsafe_tilt_deg` (new snapshot fields) and shows the tilt.
+- Telemetry shows "Target (frozen)" in failsafe (the controller isn't flying to it; it returns there when GPS is back).
+- Sensor bar split in two rows; failsafe + drag + tilt boxed together; a visible line says why controls are greyed out.
+- 📖 Learn links in the Fly view for wind (07), sensors/GPS/failsafe (08) and missions (09).
+- Lesson 08 "Try it live" rewritten as numbered steps with "what you should see"; 3 new self-check questions; 1x -> 1×.
+- Every lesson has an `## Answers` section; the lesson renderer folds it behind "Show answers".
+- Lesson renderer fixes: `###` headings and *italic* used to show raw; escaped `A\*` now works.
+- Convention notes: wind "toward, maths angle" vs weather-report "from, compass bearing" (lesson 07); yaw vs compass
+  heading and NED (lesson 02).
+

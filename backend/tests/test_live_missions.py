@@ -502,3 +502,12 @@ def test_failsafe_tilt_setting_changes_how_hard_w_pushes_and_survives_a_reset():
     assert math.degrees(rt.failsafe_tilt_rad) == _pytest.approx(16.0)
     with _pytest.raises(ValueError):
         rt.command("gps", outage=True, tilt_deg=45.0)
+
+
+def test_snapshot_reports_the_failsafe_settings_for_the_ui_hints():
+    rt, _ = outage_drift(failsafe=True, seconds=1.5)
+    snap = rt.snapshot()
+    assert snap["failsafe"] and snap["failsafe_drag_n_s_m"] == 0.4 and snap["failsafe_tilt_deg"] == 8.0
+    rt.command("gps", outage=True, failsafe=True, drag_n_s_m=0.0, tilt_deg=12)
+    snap = rt.snapshot()
+    assert snap["failsafe_drag_n_s_m"] == 0.0 and snap["failsafe_tilt_deg"] == 12.0

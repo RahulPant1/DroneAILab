@@ -39,3 +39,8 @@ Remove the damping (`--alt-kd 0`) and the drone overshoots to 4 m and keeps boun
 1. A 1.5 kg drone has four motors of 6 N max each. What is its T/W, and roughly what hover throttle will it need?
 2. Why does doubling a propeller's spin speed give four times the thrust, not twice?
 3. With Kd = 0 the drone bounces around the target. Which term was "braking" it, and what does it measure?
+
+## Answers
+1. Max thrust = 4 × 6 = 24 N; weight = 1.5 × 9.81 ≈ 14.7 N; so T/W ≈ **1.63**. Hover throttle ≈ 100 ÷ 1.63 ≈ **61 %**.
+2. Thrust is T = kT · ω². Doubling ω gives 2² = 4 times the thrust. (A propeller spinning twice as fast throws twice as much air, each bit twice as fast.)
+3. The **D** term (Kd). It measures the vertical **speed** and pushes against it, like a shock absorber.

@@ -23,3 +23,8 @@
 1. Overshoot is too big. Name two knobs that reduce it.
 2. Why can't a P-only controller hold the exact height with an unknown payload?
 3. What's the downside of a very large Ki?
+
+## Answers
+1. Lower **Kp** (a softer spring) or raise **Kd** (more braking). A smaller Ki also helps.
+2. P only pushes when there's an error. Holding up an unknown payload needs a steady extra push, so P needs a steady error to produce it: the drone settles a bit too low.
+3. The I term keeps adding up error during big moves (*wind-up*), then overshoots and swings slowly back and forth before settling.

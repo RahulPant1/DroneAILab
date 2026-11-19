@@ -34,3 +34,8 @@ PX4 and ArduPilot fly waypoint missions exactly like this (take-off, waypoints, 
 1. Why does a potential field get stuck in a U-shaped trap, while A* doesn't?
 2. A* keeps a safety margin. Why is that needed if the plan already avoids the obstacles?
 3. Flying faster makes the mission shorter but the corner errors larger. Why?
+
+## Answers
+1. A potential field only looks **nearby**. Inside a U-shaped trap, the pull of the goal and the push of the walls cancel (a local minimum), and it can't see the way around. A* searches the **whole map** before flying, so it finds the way out if one exists.
+2. The real drone doesn't follow the plan exactly: it cuts corners, wind pushes it, and its position estimate is a little wrong. The margin absorbs those errors.
+3. A drone can only tilt so far, so its sideways acceleration is limited. At higher speed it needs more room to turn or brake, so it swings wider at corners (the room needed grows with speed squared).

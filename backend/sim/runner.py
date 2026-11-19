@@ -379,6 +379,8 @@ class RealtimeSim:
             "gps_outage": bool(self.gps_outage and self.sim.estimator),  # no GPS fixes (sensor noise on)
             "gps_lost_s": round(self.gps_lost_s(), 1),  # how long the outage has lasted
             "failsafe": self.failsafe_active(),  # GPS-loss failsafe: holding level + altitude, not position
+            "failsafe_drag_n_s_m": self.failsafe_drag_n_s_m,  # extra air drag in failsafe (0 = real physics)
+            "failsafe_tilt_deg": round(math.degrees(self.failsafe_tilt_rad), 1),  # a full W/A/S/D press in failsafe
             "setpoint": {
                 "x_m": round(sp.x_m, 3),
                 "y_m": round(sp.y_m, 3),
