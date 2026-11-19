@@ -225,7 +225,7 @@ class RealtimeSim:
         if cmd == "wind":
             return self.set_wind(args.get("speed_m_s", 0.0), args.get("direction_deg", 0.0), args.get("gust_m_s", 0.0))
         if cmd == "sensors":
-            return self.set_sensors(bool(args.get("enabled", False)), args.get("noise_scale", 1.0))
+            return self.set_sensors(bool(args.get("enabled", False)), args.get("noise_scale", 1.0), bool(args.get("gps_noise", True)))
         if cmd == "sticks":
             self.pilot.set_sticks(Sticks(**{k: float(args.get(k, 0.0)) for k in ("forward", "left", "up", "yaw")}))
             return ""
@@ -247,11 +247,11 @@ class RealtimeSim:
         """Pre-arm check: seconds until the GPS position has settled (0 with perfect sensors)."""
         return self.sim.estimator.settle_left_s if self.sim.estimator else 0.0
 
-    def set_sensors(self, enabled: bool, noise_scale=1.0) -> str:
+    def set_sensors(self, enabled: bool, noise_scale=1.0, gps_noise: bool = True) -> str:
         """Noisy sensors + estimator (the controller flies on its ESTIMATE), or perfect sensors (it sees the truth).
         The buttons' autopilot and collision checks always use the true position."""
         try:
-            cfg = SensorConfig(enabled=enabled, noise_scale=float(noise_scale))
+            cfg = SensorConfig(enabled=enabled, noise_scale=float(noise_scale), gps_noise_scale=1.0 if gps_noise else 0.0)
         except (TypeError, ValueError):
             raise ValueError("noise_scale must be a number.") from None
         self.sim.set_sensors(cfg)  # raises ConfigError (a ValueError) if out of range
@@ -260,7 +260,8 @@ class RealtimeSim:
             return "Perfect sensors: the controller sees the true state."
         wait = self.gps_settle_left_s()
         settle = f" GPS settling for {wait:.0f} s before take-off." if wait > 0 else ""
-        return f"Sensor noise on ({cfg.noise_scale:g}× typical): the controller now flies on its estimate.{settle}"
+        gps = "" if gps_noise else " GPS is perfect (no GPS noise)."
+        return f"Sensor noise on ({cfg.noise_scale:g}× typical): the controller now flies on its estimate.{gps}{settle}"
 
     def snapshot(self) -> dict:
         """A compact, JSON-friendly picture of 'right now' for the UI (SI units, radians)."""

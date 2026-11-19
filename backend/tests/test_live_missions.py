@@ -314,3 +314,26 @@ def test_mission_waits_on_the_ground_for_gps_then_flies():
     snap = rt.snapshot()
     assert snap["mission"]["phase"] == "gps" and snap["pos_m"][2] < 0.01
     assert run_live(rt)[-1] == "Landed at the final waypoint."
+
+
+# ---- GPS noise on/off (other sensors still noisy) ----
+
+
+def test_gps_noise_is_most_of_the_sideways_wander():
+    on = MissionSim(BASIC, seed=0)
+    on.command("sensors", enabled=True, noise_scale=3.0, gps_noise=True)
+    off = MissionSim(BASIC, seed=0)
+    assert "GPS is perfect" in off.command("sensors", enabled=True, noise_scale=3.0, gps_noise=False)
+    assert off.sim.sensors.gps_sigma == 0 and off.sim.sensors.gyro_sigma > 0  # only the GPS is clean
+    wander_on, err_on = hover_spread(on)
+    wander_off, err_off = hover_spread(off)
+    assert wander_off < 0.5 * wander_on and err_off < 0.3 * err_on
+
+
+def test_gps_noise_defaults_to_on_so_lab_and_older_clients_are_unchanged():
+    from backend.sim.sensors import SensorConfig
+
+    assert SensorConfig().gps_noise_scale == 1.0
+    rt = MissionSim(BASIC)
+    rt.command("sensors", enabled=True, noise_scale=1.0)  # no gps_noise field
+    assert rt.sim.sensors.gps_sigma > 0

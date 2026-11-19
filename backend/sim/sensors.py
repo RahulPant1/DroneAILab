@@ -40,6 +40,7 @@ SENSOR_LIMITS = {
     "gyro_bias_deg_s": (-5.0, 5.0),
     "baro_trust": (0.01, 1.0),
     "gps_trust": (0.01, 1.0),
+    "gps_noise_scale": (0.0, 5.0),
     "tilt_correction": (0.0, 5.0),
 }
 
@@ -53,6 +54,7 @@ class SensorConfig:
     gyro_bias_deg_s: float = 0.0  # constant offset on the roll-axis gyro (shows estimator drift)
     baro_trust: float = 0.1  # estimator: how much each altimeter reading corrects the height (0–1)
     gps_trust: float = 0.2  # estimator: same for horizontal position
+    gps_noise_scale: float = 1.0  # extra multiplier for GPS noise only (0 = perfect GPS, other sensors still noisy)
     # Estimator: how strongly the accelerometer corrects the tilt (1/s). Kept gentle on purpose: while a
     # multirotor accelerates, its accelerometer mostly feels its own thrust and "lies" about which way is down.
     tilt_correction: float = 0.2
@@ -94,7 +96,7 @@ class Sensors:
         self.accel_sigma = ACCEL_NOISE_M_S2 * k
         self.baro_sigma = BARO_NOISE_M * k
         self.compass_sigma = COMPASS_NOISE_RAD * k
-        self.gps_sigma = GPS_NOISE_M * k
+        self.gps_sigma = GPS_NOISE_M * k * cfg.gps_noise_scale
         self.gyro_bias = np.array([math.radians(cfg.gyro_bias_deg_s), 0.0, 0.0])
         self.readings = Readings()
         self.step_count = 0

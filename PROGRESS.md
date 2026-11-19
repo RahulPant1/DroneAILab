@@ -258,4 +258,12 @@ ones); the obstacles are known in advance (no sensing).
 - UI: Take off button shows "🛰 GPS settling 3.2 s"; Telemetry and mission status show it too.
 - Tests: 149 pass (+3; three older noisy tests now wait for the settle).
 
+## Extra: GPS noise toggle in the live view (done 2026-11-19)
+- `SensorConfig.gps_noise_scale` (default 1.0, so the Lab is unchanged); WS `sensors` takes `gps_noise: true|false`.
+  UI: "🛰 GPS noise" checkbox next to the sensor noise level (only GPS goes perfect; other sensors stay noisy).
+- Hover at 2 m, 3 seeds: horizontal wander 0.18 → 0.03 m (1x) and 0.50 → 0.10 m (3x) when GPS noise is off;
+  estimate error 0.16 → 0.01 m / 0.48 → 0.04 m. Vertical wander unchanged (altimeter). Slalom at 3x: 3/5 crashes
+  with GPS noise, 0/5 without. GPS noise is most of the sideways drift.
+- Tests: 151 pass (+2).
+
 ## Next: Roadmap items (PX4/Gazebo, ROS 2, vision, …) only with explicit approval.

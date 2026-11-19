@@ -212,14 +212,14 @@ function WindBar({ status }: { status: string }) {
 
 /** Noisy sensors on/off. With them on, the controller flies on its ESTIMATE (the ghost drone in 3D). */
 function SensorBar({ status }: { status: string }) {
-  const [sensors, setSensors] = useState({ on: false, level: 1 });
+  const [sensors, setSensors] = useState({ on: false, level: 1, gps: true });
   const change = (patch: Partial<typeof sensors>) => {
     const v = { ...sensors, ...patch };
     setSensors(v);
-    sim.send('sensors', { enabled: v.on, noise_scale: v.level });
+    sim.send('sensors', { enabled: v.on, noise_scale: v.level, gps_noise: v.gps });
   };
   useEffect(() => {
-    if (status === 'open' && sensors.on) sim.send('sensors', { enabled: true, noise_scale: sensors.level });
+    if (status === 'open' && sensors.on) sim.send('sensors', { enabled: true, noise_scale: sensors.level, gps_noise: sensors.gps });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
   const off = status !== 'open';
@@ -233,6 +233,9 @@ function SensorBar({ status }: { status: string }) {
         level
         <input type="range" min={0.5} max={3} step={0.25} value={sensors.level} disabled={off || !sensors.on} onChange={(e) => change({ level: Number(e.target.value) })} />
         <b className="wind-num">{sensors.level.toFixed(2)}</b>×
+      </label>
+      <label className="inline" title="Untick for a perfect GPS while the other sensors (gyro, accelerometer, altimeter, compass) stay noisy. Shows how much of the drift comes from the GPS.">
+        <input type="checkbox" checked={sensors.gps} disabled={off || !sensors.on} onChange={(e) => change({ gps: e.target.checked })} /> 🛰 GPS noise
       </label>
       {sensors.on && <span className="muted">Ghost outline = where the drone <i>thinks</i> it is. The controller steers the ghost, not the real drone. On the ground it averages GPS for 5 s before it may take off.</span>}
     </div>

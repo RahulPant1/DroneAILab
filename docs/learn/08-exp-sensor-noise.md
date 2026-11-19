@@ -42,3 +42,9 @@ isn't moving, so it averages every GPS fix instead of filtering. One fix can be 
 is about 7 times better (error shrinks with the square root of the number of fixes). Watch the pink ghost jump
 around at first and then settle onto the real drone. Real flight controllers do the same: they won't arm until the
 position estimate is steady.
+
+### Which sensor causes the drift?
+Untick **🛰 GPS noise** (with sensor noise still on): the GPS becomes perfect while the gyro, accelerometer,
+altimeter and compass stay noisy. Sideways wander drops about 5 times (0.5 m → 0.1 m at 3x), but up-down wobble
+stays the same, because height comes from the altimeter, not the GPS. That's why precise drones add RTK GPS
+(centimetre-level) or cameras for position.
