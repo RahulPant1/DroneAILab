@@ -99,6 +99,7 @@ export default function Controls({ follow, setFollow }: { follow: boolean; setFo
       </div>
       <MissionBar s={s} offline={offline} />
       <WindBar status={status} />
+      <SensorBar status={status} />
     </div>
   );
 }
@@ -202,6 +203,35 @@ function WindBar({ status }: { status: string }) {
         <b className="wind-num">{wind.gust.toFixed(2)}</b> m/s
       </label>
       <button disabled={off || (wind.speed === 0 && wind.gust === 0)} onClick={() => change({ speed: 0, gust: 0 })}>Calm</button>
+    </div>
+  );
+}
+
+/** Noisy sensors on/off. With them on, the controller flies on its ESTIMATE (the ghost drone in 3D). */
+function SensorBar({ status }: { status: string }) {
+  const [sensors, setSensors] = useState({ on: false, level: 1 });
+  const change = (patch: Partial<typeof sensors>) => {
+    const v = { ...sensors, ...patch };
+    setSensors(v);
+    sim.send('sensors', { enabled: v.on, noise_scale: v.level });
+  };
+  useEffect(() => {
+    if (status === 'open' && sensors.on) sim.send('sensors', { enabled: true, noise_scale: sensors.level });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+  const off = status !== 'open';
+
+  return (
+    <div className="row small sensor-bar">
+      <label className="inline" title="Off = perfect sensors: the controller knows exactly where the drone is. On = real-ish gyro, accelerometer, altimeter, compass and GPS noise, and an estimator that guesses the state from them.">
+        <input type="checkbox" checked={sensors.on} disabled={off} onChange={(e) => change({ on: e.target.checked })} /> 📡 Sensor noise
+      </label>
+      <label className="inline" title="1 = typical hobby sensors, 3 = poor ones">
+        level
+        <input type="range" min={0.5} max={3} step={0.25} value={sensors.level} disabled={off || !sensors.on} onChange={(e) => change({ level: Number(e.target.value) })} />
+        <b className="wind-num">{sensors.level.toFixed(2)}</b>×
+      </label>
+      {sensors.on && <span className="muted">Ghost outline = where the drone <i>thinks</i> it is. The controller steers the ghost, not the real drone.</span>}
     </div>
   );
 }

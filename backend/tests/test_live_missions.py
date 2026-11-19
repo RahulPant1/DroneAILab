@@ -150,3 +150,57 @@ def test_crosswind_shrinks_the_gap_in_a_live_mission_like_in_the_lab():
 
     calm, windy = min_gap(0.0), min_gap(6.0)
     assert windy < calm - 0.08 and windy > 0  # closer to the boxes, but A*'s margin still saves it
+
+
+# ---- sensor noise in the live view ----
+
+
+def hover_spread(rt: MissionSim) -> tuple[float, float]:
+    """Fly 15 s at 2 m; return (horizontal wander std, mean estimate error)."""
+    import numpy as np
+
+    rt.command("takeoff", alt_m=2.0)
+    for _ in range(100):
+        rt.advance(0.05)
+    pos, err = [], []
+    for _ in range(300):
+        rt.advance(0.05)
+        snap = rt.snapshot()
+        pos.append(snap["pos_m"][:2])
+        if snap["est_pos_m"]:
+            err.append(float(np.linalg.norm(np.subtract(snap["est_pos_m"], snap["pos_m"]))))
+    return float(np.std(pos, axis=0).max()), float(np.mean(err)) if err else 0.0
+
+
+def test_perfect_sensors_by_default_so_the_live_view_is_unchanged():
+    rt = MissionSim(BASIC)
+    assert rt.sim.estimator is None and rt.snapshot()["est_pos_m"] is None
+    wander, err = hover_spread(rt)
+    assert wander < 0.01 and err == 0.0
+
+
+def test_more_sensor_noise_means_more_wander_and_a_worse_estimate():
+    results = {}
+    for k in (1.0, 3.0):
+        rt = MissionSim(BASIC)
+        assert "estimate" in rt.command("sensors", enabled=True, noise_scale=k)
+        results[k] = hover_spread(rt)
+    assert 0.03 < results[1.0][0] < results[3.0][0] < 1.0
+    assert 0.03 < results[1.0][1] < results[3.0][1]
+
+
+def test_sensor_setting_survives_reset_and_can_be_switched_off_mid_flight():
+    rt = MissionSim(BASIC)
+    rt.command("sensors", enabled=True, noise_scale=2.0)
+    rt.reset()
+    assert rt.sim.estimator is not None
+    rt.command("takeoff", alt_m=2.0)
+    for _ in range(60):
+        rt.advance(0.05)
+    assert "Perfect" in rt.command("sensors", enabled=False)
+    assert rt.sim.estimator is None and rt.snapshot()["est_pos_m"] is None
+    for _ in range(60):
+        rt.advance(0.05)
+    assert abs(rt.state.pos_m[2] - 2.0) < 0.3  # still flying fine
+    with pytest.raises(ValueError, match="noise_scale"):
+        rt.command("sensors", enabled=True, noise_scale=50)

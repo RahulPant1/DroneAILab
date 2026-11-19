@@ -111,6 +111,20 @@ class LightweightSim:
         rng = np.random.default_rng([self.seed, self.step_count])
         self.wind = Wind(env, rng, PHYSICS_DT_S) if env.active else None
 
+    def set_sensors(self, cfg: SensorConfig) -> None:
+        """Switch sensor noise on/off without restarting (live view). A newly switched-on estimator starts
+        out knowing the true state, as if just calibrated, and then has to keep up using noisy sensors."""
+        problems = validate_sensors(cfg)
+        if problems:
+            raise ConfigError(" ".join(problems))
+        self.sensor_cfg = cfg
+        if cfg.enabled:
+            self.sensors = Sensors(cfg, np.random.default_rng([self.seed, self.step_count, 1]))
+            self.estimator = Estimator(cfg, self.state, PHYSICS_DT_S)
+        else:
+            self.sensors = None
+            self.estimator = None
+
     @property
     def estimate(self) -> State:
         """What the controller believes. With sensors off ('perfect sensors') this IS the truth."""
@@ -146,12 +160,13 @@ class RealtimeSim:
     def __init__(self, config: DroneConfig, seed: int = 0):
         self.sim = LightweightSim()
         self.env = EnvConfig()  # wind; it stays the same across resets until changed
+        self.sensor_cfg = SensorConfig()  # off = perfect sensors; also kept across resets
         self.reset(config, seed)
 
     def reset(self, config: DroneConfig | None = None, seed: int | None = None) -> None:
         self.config = config or self.config
         self.seed = self.seed if seed is None else seed
-        self.sim.reset(self.config, self.seed, self.start_state(), env=self.env)
+        self.sim.reset(self.config, self.seed, self.start_state(), env=self.env, sensors=self.sensor_cfg)
         self.pilot = Pilot()
         self.paused = False
         self._time_debt_s = 0.0
@@ -200,6 +215,8 @@ class RealtimeSim:
             return self.pilot.set_target(args.get("x_m"), args.get("y_m"), args.get("alt_m"), args.get("yaw_rad"))
         if cmd == "wind":
             return self.set_wind(args.get("speed_m_s", 0.0), args.get("direction_deg", 0.0), args.get("gust_m_s", 0.0))
+        if cmd == "sensors":
+            return self.set_sensors(bool(args.get("enabled", False)), args.get("noise_scale", 1.0))
         if cmd == "sticks":
             self.pilot.set_sticks(Sticks(**{k: float(args.get(k, 0.0)) for k in ("forward", "left", "up", "yaw")}))
             return ""
@@ -216,6 +233,19 @@ class RealtimeSim:
         if not env.active:
             return "Wind off: calm air."
         return f"Wind {env.wind_speed_m_s:.1f} m/s toward {env.wind_direction_deg:.0f}°, gusts ±{env.gust_std_m_s:.1f} m/s."
+
+    def set_sensors(self, enabled: bool, noise_scale=1.0) -> str:
+        """Noisy sensors + estimator (the controller flies on its ESTIMATE), or perfect sensors (it sees the truth).
+        The buttons' autopilot and collision checks always use the true position."""
+        try:
+            cfg = SensorConfig(enabled=enabled, noise_scale=float(noise_scale))
+        except (TypeError, ValueError):
+            raise ValueError("noise_scale must be a number.") from None
+        self.sim.set_sensors(cfg)  # raises ConfigError (a ValueError) if out of range
+        self.sensor_cfg = cfg
+        if not enabled:
+            return "Perfect sensors: the controller sees the true state."
+        return f"Sensor noise on ({cfg.noise_scale:g}× typical): the controller now flies on its estimate."
 
     def snapshot(self) -> dict:
         """A compact, JSON-friendly picture of 'right now' for the UI (SI units, radians)."""
@@ -237,6 +267,9 @@ class RealtimeSim:
             "motor_pct": r(self.sim.motor_pct, 1),
             "thrust_total_n": round(float(self.sim.physics.last_thrusts_n.sum()), 3),
             "wind_m_s": r(self.sim.wind.current, 2) if self.sim.wind else [0.0, 0.0, 0.0],  # the air's velocity right now
+            # Where the drone BELIEVES it is (only with sensor noise on), and how it believes it is tilted.
+            "est_pos_m": r(self.sim.estimator.state.pos_m) if self.sim.estimator else None,
+            "est_quat": r(self.sim.estimator.state.quat, 5) if self.sim.estimator else None,
             "setpoint": {
                 "x_m": round(sp.x_m, 3),
                 "y_m": round(sp.y_m, 3),

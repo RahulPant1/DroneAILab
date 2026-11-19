@@ -125,7 +125,7 @@ Project 379 MB on disk.
 **Not verified by me:** the look of the Lab/History pages and charts in a real browser.
 
 **Known limitations:** the Vite dev server is the biggest RAM user; the estimator is a teaching-grade complementary
-filter (not an EKF); live flight (Fly tab) uses perfect sensors (wind was added to it later).
+filter (not an EKF); live flight (Fly tab) used perfect sensors and no wind (both were added later as toggles).
 
 ## Phase 3: Local LLM assistant (done 2026-11-19)
 
@@ -214,5 +214,15 @@ ones); the obstacles are known in advance (no sensing).
   drone (live, including gusts), and a wind line in Telemetry. Settings are re-sent if the connection drops.
 - Live check: slalom with A*, crosswind north: min gap 0.38 m (calm), 0.25 m (6 m/s, same as the Lab), 0.09 m (10 m/s).
 - Tests: 140 pass (+3). **Not verified by me:** the look in a real browser.
+
+## Extra: sensor noise toggle in the live view (done 2026-11-19)
+- WebSocket `{"cmd": "sensors", "enabled", "noise_scale"}` switches noisy sensors + estimator on/off mid-flight
+  (`LightweightSim.set_sensors`; a new estimator starts at the true state). Kept through Reset. Off by default,
+  so the live view is unchanged unless you tick it. State frames carry `est_pos_m` / `est_quat`.
+- The controller flies on the estimate; the buttons' autopilot, mission follower and collision checks use the truth.
+- UI: 📡 Sensor noise checkbox + level (0.5–3×), pink ghost outline at the estimated position/tilt, "estimate off by" line.
+- Hover at 2 m, 15 s: wander std 0.15 m (1×) / 0.4 m (3×); estimate error mean 0.16 m / 0.47 m (max 1.1 m at 3×).
+  A* still completes the slalom at 3×.
+- Tests: 143 pass (+3). **Not verified by me:** the look in a real browser.
 
 ## Next: Roadmap items (PX4/Gazebo, ROS 2, vision, …) only with explicit approval.

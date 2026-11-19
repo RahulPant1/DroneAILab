@@ -186,6 +186,39 @@ function FollowCamera({ enabled }: { enabled: boolean }) {
   return null;
 }
 
+/** A see-through outline at the ESTIMATED position and tilt (only while sensor noise is on).
+ *  The gap between it and the real drone is the estimation error. */
+function GhostDrone({ armLength }: { armLength: number }) {
+  const group = useRef<THREE.Group>(null!);
+  const a = armLength / Math.SQRT2;
+  useFrame(() => {
+    const s = sim.latest;
+    group.current.visible = !!s?.est_pos_m;
+    if (!s?.est_pos_m || !s.est_quat) return;
+    group.current.position.set(...s.est_pos_m);
+    const [w, x, y, z] = s.est_quat;
+    group.current.quaternion.set(x, y, z, w);
+  });
+  return (
+    <group ref={group} visible={false}>
+      {MOTORS.map((m, i) => (
+        <mesh key={i} position={[m.x * a, m.y * a, 0.1 * armLength]}>{/* a torus already lies flat (in x-y) */}
+          <torusGeometry args={[0.45 * armLength, 0.006, 6, 28]} />
+          <meshBasicMaterial color="#ff6bd6" transparent opacity={0.8} />
+        </mesh>
+      ))}
+      <mesh rotation={[0, 0, Math.PI / 4]}>
+        <boxGeometry args={[2 * armLength, 0.012, 0.012]} />
+        <meshBasicMaterial color="#ff6bd6" transparent opacity={0.8} />
+      </mesh>
+      <mesh rotation={[0, 0, -Math.PI / 4]}>
+        <boxGeometry args={[2 * armLength, 0.012, 0.012]} />
+        <meshBasicMaterial color="#ff6bd6" transparent opacity={0.8} />
+      </mesh>
+    </group>
+  );
+}
+
 /** An arrow above the drone showing the wind right now: points where the air is going, longer = stronger. */
 function WindArrow() {
   const arrow = useMemo(() => new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, '#e0f7ff', 0.18, 0.1), []);
@@ -255,6 +288,7 @@ export default function Scene({ armLength, follow }: { armLength: number; follow
         <Axes />
         <CourseLayer />
         <WindArrow />
+        <GhostDrone armLength={armLength} />
         <Trail />
         <Markers armLength={armLength} />
         <Drone armLength={armLength} />

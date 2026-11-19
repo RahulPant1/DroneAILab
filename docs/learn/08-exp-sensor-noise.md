@@ -24,3 +24,8 @@
 1. Why combine two sensors instead of using the best one?
 2. With a 1 °/s gyro bias and a tilt correction of 0.5 /s, how big is the steady tilt error?
 3. Why does the drone wander even though its *estimated* position sits at 0?
+
+## Try it live
+In the **Fly** tab, tick **📡 Sensor noise** and hover. The pink ghost outline is the drone's *estimate* of itself.
+The controller keeps the ghost on target, so the real drone wanders by about the estimate error. Turn the level up
+to 3× and watch the gap grow. Then fly a mission through the slalom: does the safety margin still hold?

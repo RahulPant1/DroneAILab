@@ -21,6 +21,8 @@ export interface SimState {
   motor_pct: [number, number, number, number]; // FR, RL, FL, RR
   thrust_total_n: number;
   wind_m_s: Vec3; // the air's velocity right now (steady wind + gusts), world frame
+  est_pos_m: Vec3 | null; // where the drone BELIEVES it is (sensor noise on), else null
+  est_quat: Quat | null;
   setpoint: { x_m: number; y_m: number; alt_m: number; yaw_rad: number };
   message: string;
   mission: MissionStatus | null; // set while the mission autopilot is flying

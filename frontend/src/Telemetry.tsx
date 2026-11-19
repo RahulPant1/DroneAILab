@@ -33,6 +33,11 @@ export default function Telemetry({ onLearn }: { onLearn: (slug: string) => void
         </tbody>
       </table>
       <p className="muted small">Speed {f(speed)} m/s · total thrust {f(s.thrust_total_n, 1)} N</p>
+      {s.est_pos_m && (
+        <p className="muted small" title="Distance between where the drone thinks it is (its estimate) and where it really is">
+          Sensors: noisy · estimate off by <b>{f(Math.hypot(...s.est_pos_m.map((v, i) => v - s.pos_m[i])), 2)} m</b>
+        </p>
+      )}
       <p className="muted small" title="The air's velocity at the drone right now (steady wind + gusts)">
         {windSpeed < 0.05 ? 'Wind: calm' : `Wind ${f(windSpeed, 1)} m/s toward ${compassName(windDir)} (${f(windDir, 0)}°)`}
       </p>

@@ -24,6 +24,8 @@ to watch the autopilot fly it live. Hover / Land take over from the autopilot.
 
 **Wind (live):** the 🌬 Wind sliders under the 3D view set a steady wind, its direction and gusts. Changes apply
 mid-flight; an arrow above the drone shows the air's motion right now.
+**Sensor noise (live):** tick 📡 Sensor noise to fly on realistic noisy sensors. A pink ghost outline shows where the
+drone *thinks* it is; the controller steers the ghost, so the real drone wanders. Telemetry shows the estimate error.
 
 **Low on memory?** Use `./run.sh --lite`. It builds the web page once (and again only after frontend
 files change), then a single Python server runs everything: about **70 MB of RAM instead of ~300–550 MB**,
