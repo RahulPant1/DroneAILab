@@ -69,3 +69,7 @@ The model unloads itself after 2 idle minutes (`ollama ps`). If Ollama is off, t
 ## Uninstall
 `rm -rf ~/DroneAILab` removes everything this project added. The only things left are the shared
 download caches (`~/.cache/uv`, `~/.npm`), which other projects use too.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).
