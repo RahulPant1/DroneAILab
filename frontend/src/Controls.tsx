@@ -1,23 +1,55 @@
 // Flight buttons, keyboard nudges, a "fly to" box, and the mission bar (course + autopilot).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, compassName, sim, useSimUi, useThrottledState, type SimState } from './sim';
 
+// Held keys move the drone. Uses e.code (the physical key), so it works on any keyboard layout
+// and with Shift held. Arrow keys = same as W/A/S/D; Space/Shift = up/down (like flying in games).
 const MOVE_KEYS: Record<string, [keyof Sticks, number]> = {
-  w: ['forward', 1], s: ['forward', -1],
-  a: ['left', 1], d: ['left', -1],
-  r: ['up', 1], f: ['up', -1],
-  q: ['yaw', 1], e: ['yaw', -1],
+  KeyW: ['forward', 1], KeyS: ['forward', -1], ArrowUp: ['forward', 1], ArrowDown: ['forward', -1],
+  KeyA: ['left', 1], KeyD: ['left', -1], ArrowLeft: ['left', 1], ArrowRight: ['left', -1],
+  KeyR: ['up', 1], KeyF: ['up', -1], Space: ['up', 1], ShiftLeft: ['up', -1], ShiftRight: ['up', -1],
+  KeyQ: ['yaw', 1], KeyE: ['yaw', -1],
 };
 type Sticks = { forward: number; left: number; up: number; yaw: number };
+
+/** One-press shortcuts: T take off, L land, H hover, P pause/resume, Enter = race again (only in a race). */
+function pressShortcut(code: string, takeoffAltM: number): boolean {
+  const s = sim.latest;
+  if (!s) return false;
+  const flying = s.mode === 'takeoff' || s.mode === 'hover' || s.mode === 'mission';
+  const settling = (s.gps_settle_left_s ?? 0) > 0 && s.mode === 'idle';
+  switch (code) {
+    case 'KeyT':
+      if (!flying && s.mode !== 'land' && !settling) sim.send('takeoff', { alt_m: takeoffAltM });
+      return true;
+    case 'KeyL':
+      if (flying) sim.send('land');
+      return true;
+    case 'KeyH':
+      if (flying) sim.send('hover');
+      return true;
+    case 'KeyP':
+      sim.send(s.paused ? 'resume' : 'pause');
+      return true;
+    case 'Enter':
+    case 'NumpadEnter':
+      if (!s.race) return false;
+      sim.send('reset');
+      return true;
+  }
+  return false;
+}
 
 function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA');
 }
 
-/** Hold W/A/S/D/R/F/Q/E to move the target. Sends only when the set of held keys changes. */
-function useKeyboardSticks(): void {
+/** Hold the move keys to move the target. Sends only when the set of held keys changes. */
+function useKeyboardSticks(takeoffAltM: number): void {
+  const altRef = useRef(takeoffAltM);
+  altRef.current = takeoffAltM;
   useEffect(() => {
     const held = new Set<string>();
     let last = '';
@@ -25,7 +57,7 @@ function useKeyboardSticks(): void {
       const s: Sticks = { forward: 0, left: 0, up: 0, yaw: 0 };
       held.forEach((k) => {
         const [axis, sign] = MOVE_KEYS[k];
-        s[axis] += sign;
+        s[axis] = Math.max(-1, Math.min(1, s[axis] + sign)); // W + Up arrow together is still full stick
       });
       const key = JSON.stringify(s);
       if (key !== last) {
@@ -34,14 +66,18 @@ function useKeyboardSticks(): void {
       }
     };
     const down = (e: KeyboardEvent) => {
-      const k = e.key.toLowerCase();
-      if (!(k in MOVE_KEYS) || isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
-      e.preventDefault();
-      held.add(k);
-      send();
+      if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.code in MOVE_KEYS) {
+        e.preventDefault(); // no page scrolling (arrows/Space) and no "clicking" a focused button with Space
+        held.add(e.code);
+        send();
+      } else if (!e.repeat && pressShortcut(e.code, altRef.current)) {
+        e.preventDefault();
+      }
     };
     const up = (e: KeyboardEvent) => {
-      held.delete(e.key.toLowerCase());
+      if (e.code in MOVE_KEYS && !isTyping(e.target)) e.preventDefault(); // Space would click a focused button on release
+      held.delete(e.code);
       send();
     };
     const release = () => {
@@ -60,10 +96,10 @@ function useKeyboardSticks(): void {
 }
 
 export default function Controls({ follow, setFollow, onLearn }: { follow: boolean; setFollow: (v: boolean) => void; onLearn: (slug: string) => void }) {
-  useKeyboardSticks();
+  const [alt, setAlt] = useState(2);
+  useKeyboardSticks(alt);
   const { status } = useSimUi();
   const s = useThrottledState(5);
-  const [alt, setAlt] = useState(2);
   const [target, setTarget] = useState({ x: 3, y: 0, alt: 2 });
   const auto = s?.mode === 'mission'; // the mission autopilot is flying; Hover / Land / Go take over
   const flying = s?.mode === 'takeoff' || s?.mode === 'hover' || auto;
@@ -94,11 +130,13 @@ export default function Controls({ follow, setFollow, onLearn }: { follow: boole
             {s.failsafe_drag_n_s_m > 0
               ? ' (it coasts, slowed by the extra failsafe drag: counter-steer to stop sooner)'
               : ' (real physics: it coasts until you tilt the other way)'}
-            {' '}· <kbd>R</kbd><kbd>F</kbd> up/down · <kbd>Q</kbd><kbd>E</kbd> turn
+            {' '}(or arrows) · <kbd>R</kbd><kbd>F</kbd> / <kbd>Space</kbd><kbd>Shift</kbd> up/down · <kbd>Q</kbd><kbd>E</kbd> turn
           </span>
         ) : (
           <span className="keys">
-            <kbd>W</kbd><kbd>S</kbd> forward/back · <kbd>A</kbd><kbd>D</kbd> left/right · <kbd>R</kbd><kbd>F</kbd> up/down · <kbd>Q</kbd><kbd>E</kbd> turn
+            <kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd> forward/back · <kbd>A</kbd><kbd>D</kbd> or <kbd>←</kbd><kbd>→</kbd> left/right
+            {' '}· <kbd>Space</kbd><kbd>Shift</kbd> or <kbd>R</kbd><kbd>F</kbd> up/down · <kbd>Q</kbd><kbd>E</kbd> turn
+            <span title="One-press shortcuts: T take off, L land, H hover here, P pause/resume, Enter race again (in a race)"> · <kbd>T</kbd> take off · <kbd>L</kbd> land · <kbd>H</kbd> hover · <kbd>P</kbd> pause{s?.race ? <> · <kbd>Enter</kbd> race again</> : null}</span>
           </span>
         )}
         <span className="spacer" />

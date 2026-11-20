@@ -16,7 +16,7 @@ cp .env.example .env
 ```bash
 ./run.sh          # then open http://localhost:5174 in Windows. Ctrl+C stops everything.
 ```
-Click **Take off**, then hold W/A/S/D (move), R/F (up/down), Q/E (turn).
+Click **Take off** (or press T), then hold W/A/S/D or the arrow keys (move), Space/Shift or R/F (up/down), Q/E (turn). One-press keys: T take off, L land, H hover, P pause, Enter = race again.
 
 **Courses in 3D:** under the 3D view, pick a **Course** (e.g. Box canyon) to put obstacles and waypoint rings
 into the world. Fly it yourself (touching a box stops the motors), or choose a planner and press **▶ Fly mission**

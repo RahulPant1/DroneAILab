@@ -4,17 +4,19 @@
 
 ## How to play
 1. In the **Fly** tab, pick a track under **🏁 Race**. The drone moves to the blue start pad.
-2. Press **🛫 Take off**. The clock starts now.
+2. Press **🛫 Take off** (or the **T** key). The clock starts now.
 3. Fly through the **yellow** (glowing) hoop. It turns **green**, and the next one lights up.
 4. After the last hoop, the clock stops. Beat your best time!
-5. Press **↺ Race again** to try again.
+5. Press **↺ Race again** (or **Enter**) to try again.
 
-Keys: **W/S** forward/back · **A/D** left/right · **R/F** up/down · **Q/E** turn.
+Keys: **W/S** or **↑/↓** forward/back · **A/D** or **←/→** left/right · **Space/Shift** (or **R/F**) up/down · **Q/E** turn.
+
+Shortcuts: **T** take off · **Enter** race again · **L** land · **P** pause.
 
 ## Tracks (easy first)
 - **First flight:** 3 hoops in a straight line. Just hold W.
-- **Up and down:** low, high, low, high. Use R and F.
-- **Zig-zag:** left, right, left, right. Use A and D while holding W.
+- **Up and down:** low, high, low, high. Use Space and Shift (or R and F).
+- **Zig-zag:** left, right, left, right. Use A and D (or ← →) while holding W (or ↑).
 - **Square loop:** around a square. Turn with Q so W keeps meaning "forward".
 
 The computer's autopilot does them in about 5, 7, 8 and 9 seconds. Can you beat it?
