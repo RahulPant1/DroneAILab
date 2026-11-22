@@ -78,6 +78,7 @@ Builds the real ArduCopter flight code for this laptop and flies it in its own s
 .venv/bin/python -m backend.sitl.fly       # scripted flight: take-off, fly-to, square mission, RTL + report
 DRONELAB_SITL=1 .venv/bin/pytest -q backend/tests/test_sitl.py   # the real-flight test (~1 min)
 ```
+In the app: Fly tab → **🛰 ArduPilot** → Start: the real autopilot flies an orange drone next to yours (take-off, fly-to, square mission, return home) and **📈 Compare** plots the same "fly 10 m north" on both autopilots.
 Lesson: [docs/learn/12-ardupilot-sitl.md](docs/learn/12-ardupilot-sitl.md). Remove it all with `rm -rf external/`.
 
 ## License

@@ -6,6 +6,8 @@
   GET  /api/learn/{slug}     -> a docs/learn/ page as Markdown text
   WS   /ws/sim               -> live simulation (client sends commands, server streams state ~30 Hz)
                                incl. {"cmd": "course", "scenario": id|null} and {"cmd": "mission", "planner", "cruise_speed_m_s"}
+                               and {"cmd": "sitl", "action": start|stop|takeoff|goto|hover|square|rtl|land|compare, ...}
+                               (real ArduCopter SITL; its state rides along in every frame as "sitl")
 
   GET  /api/experiments                -> the six Lab experiments (sliders, concept, metrics)
   POST /api/experiments/{id}/run       -> run headless, returns a RunResult
@@ -32,6 +34,7 @@ serves the web page itself, so no Node process is needed while the app runs.
 from __future__ import annotations
 
 import asyncio
+import atexit
 import os
 import re
 import threading
@@ -51,6 +54,7 @@ from .experiments import EXPERIMENTS, ExperimentError, get_experiment
 from .sim.config import GAIN_LIMITS, LIMITS, PRESETS, ConfigError, DroneConfig, get_preset, validate_config
 from .autonomy.live import MissionSim
 from .games.race import TRACKS, load_best_times
+from .sitl.bridge import BRIDGE
 from .storage import RunStore, StorageError, compare
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -65,6 +69,7 @@ _health_cache: dict = {"at": -1e9, "value": None}
 store = RunStore()
 _heavy_work = threading.Lock()  # one headless run at a time (laptop-safety rule)
 _ai_lock = asyncio.Lock()  # one LLM request at a time
+atexit.register(BRIDGE.stop)  # never leave an ArduPilot SITL running after the server stops
 
 
 def settings() -> dict:
@@ -318,6 +323,8 @@ def handle_message(session: MissionSim, msg) -> dict | None:
     cmd = msg["cmd"]
     args = {k: v for k, v in msg.items() if k != "cmd"}
     try:
+        if cmd == "sitl":  # the 🛰 ArduPilot panel (one SITL per server, shared by all tabs)
+            return {"type": "info", "message": BRIDGE.handle(args)}
         if cmd in ("reset", "start") and ("config" in args or "preset" in args):
             cfg = get_preset(args["preset"]) if "preset" in args else parse_config(args["config"])
             problems = validate_config(cfg)
@@ -334,8 +341,8 @@ def handle_message(session: MissionSim, msg) -> dict | None:
         if cmd in ("course", "mission", "race"):
             return {"type": "course", "course": session.course_info(), "race": session.race_info(), "message": text}
         return {"type": "info", "message": text} if text else None
-    except (ConfigError, ValueError, TypeError) as exc:
-        return {"type": "error", "message": str(exc)}
+    except (ConfigError, ValueError, TypeError, KeyError) as exc:
+        return {"type": "error", "message": str(exc) if not isinstance(exc, KeyError) else f"Missing {exc}."}
 
 
 @app.websocket("/ws/sim")
@@ -369,7 +376,9 @@ async def ws_sim(ws: WebSocket) -> None:
                 outbox.append({"type": "info", "message": session.notices.pop(0)})
             while outbox:
                 await ws.send_json(outbox.pop(0))
-            await ws.send_json(session.snapshot())
+            snap = session.snapshot()
+            snap["sitl"] = BRIDGE.status()  # None unless the ArduPilot panel has been used
+            await ws.send_json(snap)
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:

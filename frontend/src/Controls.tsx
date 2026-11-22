@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api, compassName, sim, useSimUi, useThrottledState, type SimState } from './sim';
+import SitlBar from './SitlPanel';
 
 // Held keys move the drone. Uses e.code (the physical key), so it works on any keyboard layout
 // and with Shift held. Arrow keys = same as W/A/S/D; Space/Shift = up/down (like flying in games).
@@ -153,6 +154,7 @@ export default function Controls({ follow, setFollow, onLearn }: { follow: boole
       <FormationBar status={status} onLearn={onLearn} />
       <WindBar status={status} onLearn={onLearn} />
       <SensorBar status={status} onLearn={onLearn} />
+      <SitlBar a={s?.sitl} offline={offline} onLearn={onLearn} />
     </div>
   );
 }

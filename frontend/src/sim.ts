@@ -34,6 +34,42 @@ export interface SimState {
   mission: MissionStatus | null; // set while the mission autopilot is flying
   race: RaceStatus | null; // set while a rings-race track is loaded
   formation: FormationStatus | null; // set while wingmen are flying with you
+  sitl: SitlStatus | null; // the 🛰 ArduPilot panel (real ArduCopter SITL), null until it's used
+}
+
+/** One 'fly 10 m north' step, for the ArduPilot vs DroneLab comparison. */
+export interface StepRun {
+  t_s: number[];
+  north_m: number[];
+  rise_s: number | null; // 10% -> 90% of the distance
+  overshoot_m: number;
+  settle_s: number | null; // stays within 0.2 m from here on (null = not within the window)
+  peak_speed_m_s: number | null;
+}
+
+/** Real ArduCopter flight code running in SITL, shown next to your drone. Positions are ENU, already
+ *  shifted onto ArduPilot's own pad (pad_m); local_m is relative to that pad. */
+export interface SitlStatus {
+  state: 'off' | 'starting' | 'waiting_gps' | 'ready' | 'error';
+  message: string;
+  action: string | null; // what it's doing right now ("take-off", "mission", ...)
+  log: string[]; // the autopilot's own recent messages
+  pad_m: [number, number];
+  speedup: number;
+  compare: { distance_m: number; ardupilot: StepRun; dronelab: StepRun } | null;
+  mode?: string; // ArduCopter flight mode: STABILIZE, GUIDED, AUTO, RTL, LAND...
+  armed?: boolean;
+  gps_fix?: number; // 3 = 3D fix
+  sats?: number;
+  ekf_ok?: boolean;
+  t_s?: number;
+  pos_m?: Vec3;
+  local_m?: Vec3;
+  vel_m_s?: Vec3;
+  quat?: Quat;
+  euler_rad?: Vec3;
+  heading_deg?: number; // compass: 0 = north, clockwise
+  motor_pct?: number[];
 }
 
 /** Multi-drone formation: wingmen that follow your drone. */

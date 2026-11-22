@@ -367,3 +367,29 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   helper; stopping only the parent left it running: `stop_tree` stops MAVProxy's whole process tree.
 - Tests: +3 unit (ENU->NED, lat/lon offsets, square mission) + 1 opt-in real flight (`DRONELAB_SITL=1`, ~1 min).
   180 passed, 1 skipped. Lesson 12 (terminal-based; not linked from the UI yet).
+
+## Phase 5 step 4: ArduPilot in DroneLab's Fly view (done 2026-11-22)
+- `fly.Flight` rewritten around a background MAVLink reader thread (state under a lock; acks, "reached" and
+  mission-protocol messages recorded by the reader; `cancel` event so a new panel command replaces the old one).
+- `backend/sitl/bridge.py` (`BRIDGE`, one per server): start/stop SITL (server's process group, so run.sh's stop
+  kills it; plus atexit), actions in a worker thread: take-off, fly-to (relative to ArduPilot's pad), hover
+  (GUIDED hold: LOITER would need RC throttle), square mission (AUTO), RTL, land, compare. Status in every WS frame
+  (`sitl`): mode, armed, GPS, EKF, ENU pos on its pad (4 m south of DroneLab's), quat (NED->ENU: roll same, pitch
+  negated, yaw = 90° - heading), motors from SERVO_OUTPUT_RAW, recent STATUSTEXT.
+- Compare: same "fly 10 m north" from a 5 m hover. ArduPilot rise 2.2 s / overshoot 0.19 m / settle 4.0 s / top
+  4.5 m/s; DroneLab 2.8 s / 0.10 m / 4.2 s / 3.0 m/s.
+- UI: 🛰 ArduPilot panel (SitlPanel.tsx, own uPlot chart), orange drone + pad + trail in Scene.
+- Bugs found: take-off right after arming is sometimes refused (retry up to 5x); repeated timestamps made the speed
+  NaN (dedupe); demo test flaky at 5x speed (position samples ~10/real s => corner error up to 2 m + 0.5 s of
+  flight): run at 3x, limit 3.5 m.
+- Verified: whole panel flow over the real WebSocket; `./run.sh --lite` serves the panel; stopping run.sh (Ctrl+C)
+  stops SITL; stopping uvicorn alone stops it (atexit). NOT verified in a browser.
+- Tests: +6 offline, +1 opt-in real (186 passed, 2 skipped; with DRONELAB_SITL=1 all 11 SITL tests pass, twice).
+
+## Phase 5 step 3: QGroundControl (blocked, user decision)
+- 5.1.5 AppImage (sha256 verified) needs glibc 2.38 / GLIBCXX_3.4.32: Ubuntu 22.04 has 2.35. Deleted.
+- 4.4.5 AppImage (glibc 2.35 OK; no published checksum for that old release) is in `external/qgc/` (unpacked, run
+  the binary directly: its AppRun copies an icon into ~/.icons). Missing system libs: libgstgl-1.0, libgstvideo-1.0
+  (gstreamer plugins-base/gl) and libpulse-mainloop-glib. Options: user runs `sudo apt install ...`; or download the
+  .debs and unpack them into external/ (no system change, needs OK); or QGroundControl on Windows -> tcp
+  127.0.0.1:5762 (mirrored networking; untested).

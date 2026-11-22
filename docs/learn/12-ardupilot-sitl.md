@@ -47,6 +47,22 @@ What we measured (autopilot time; `--speedup 5` makes it 5x quicker on the clock
 | Square mission corners | 0.03, 1.81, 1.80, 0.23 m off: it "reaches" a corner within `WP_RADIUS_M` (2 m) and turns early instead of stopping, like DroneLab's carrot cutting corners |
 | RTL | landed **0.02 m** from home, about 31 s |
 
+## In DroneLab: the 🛰 ArduPilot panel
+In the **Fly** tab, open **🛰 ArduPilot** (under the other bars) and press **▶ Start ArduPilot**. After about 30–45 s (GPS + EKF) it says *ready*, and an **orange drone** sits on its own pad 4 m south of yours. Your drone and the keyboard work as usual next to it.
+
+- **🛫 Take off · Fly to · ⏸ Hover · ⬜ Square mission · 🏠 Return home · 🛬 Land**: the same commands a ground station sends. "Fly to" is measured from the orange pad.
+- The line under the buttons shows ArduCopter's **flight mode** (GUIDED, AUTO, RTL...), arming, GPS and EKF, plus its own messages.
+- **📈 Compare with DroneLab**: both autopilots do the same job, "fly 10 m north" from a hover at 5 m, and you get one chart and a table:
+
+| "Fly 10 m north" | rise (10→90%) | overshoot | settles (within 0.2 m) | top speed |
+|---|---|---|---|---|
+| 🛰 ArduPilot (GUIDED) | 2.2 s | 0.19 m | 4.0 s | 4.5 m/s |
+| DroneLab (basic preset) | 2.8 s | 0.10 m | 4.2 s | 3.0 m/s |
+
+Same kind of controller (position → velocity → tilt), different limits: DroneLab caps horizontal speed at 3 m/s, so it rises more slowly but overshoots less; ArduPilot speeds up to 4.5 m/s and brakes with its own acceleration and jerk limits. In the end both settle at about the same time.
+
+Only one ArduPilot runs at a time and every browser tab sees the same one. Stopping the app stops it too.
+
 ## DroneLab → ArduPilot
 | DroneLab | ArduPilot |
 |---|---|
@@ -63,8 +79,10 @@ What we measured (autopilot time; `--speedup 5` makes it 5x quicker on the clock
 1. Why does `arm throttle` get refused for the first half-minute?
 2. You want the drone 5 m east, 20 m north and 10 m up. What do you send in ArduPilot's NED frame?
 3. Why does the same ArduCopter code work on a real drone later, when here it flies a simulated one?
+4. In the comparison, ArduPilot gets there sooner but overshoots more. Which limit explains both?
 
 ## Answers
 1. The pre-arm checks wait for a 3D GPS fix and for EKF3 to settle on a position. Arming before it knows where it is would be unsafe (DroneLab's GPS settle is the same idea).
 2. North 20, east 5, down **−10** (up is negative "down").
 3. The flight code only sees sensor readings and sends motor commands. In SITL those come from, and go to, a simulator; on a real drone they come from real chips and go to real motors.
+4. The speed limit. ArduPilot is allowed to go faster (4.5 m/s against 3 m/s), so it covers the distance sooner, but it carries more speed into the stop, so it slides a little further past the target.

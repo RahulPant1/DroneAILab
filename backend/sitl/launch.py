@@ -48,6 +48,7 @@ class Sitl:
     instance: int
     log_path: Path
     _log: object = field(repr=False, default=None)
+    own_group: bool = True
 
     @property
     def port(self) -> int:
@@ -59,11 +60,17 @@ class Sitl:
 
     def stop(self) -> None:
         if self.proc.poll() is None:
-            os.killpg(self.proc.pid, signal.SIGTERM)  # its own process group: only what we started
+            if self.own_group:
+                os.killpg(self.proc.pid, signal.SIGTERM)  # its own process group: only what we started
+            else:
+                self.proc.terminate()
             try:
                 self.proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                os.killpg(self.proc.pid, signal.SIGKILL)
+                if self.own_group:
+                    os.killpg(self.proc.pid, signal.SIGKILL)
+                else:
+                    self.proc.kill()
                 self.proc.wait()
         if self._log:
             self._log.close()
@@ -75,11 +82,14 @@ class Sitl:
         self.stop()
 
 
-def start(speedup: float = 1.0, wipe: bool = True, instance: int | None = None, timeout_s: float = 30.0) -> Sitl:
+def start(speedup: float = 1.0, wipe: bool = True, instance: int | None = None, timeout_s: float = 30.0,
+          own_group: bool = True) -> Sitl:
     """Launch ArduCopter SITL (a "+" quad on its built-in physics) and wait until it accepts a ground station.
 
     speedup: run the simulation faster than real time (the autopilot doesn't notice).
     wipe: start from the default parameters instead of whatever the last run saved.
+    own_group: True = its own process group (Ctrl+C in a terminal doesn't hit it; we stop it ourselves).
+      False = stay in the caller's group, so whatever stops the DroneLab server (./run.sh) stops SITL too.
     """
     if not is_built():
         raise FileNotFoundError(f"ArduCopter SITL is not built yet ({BINARY}). Run scripts/sitl_setup.sh first.")
@@ -98,8 +108,8 @@ def start(speedup: float = 1.0, wipe: bool = True, instance: int | None = None, 
     ]
     if wipe:
         cmd.append("--wipe")
-    proc = subprocess.Popen(cmd, cwd=RUN_DIR, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    sitl = Sitl(proc, n, log_path, log)
+    proc = subprocess.Popen(cmd, cwd=RUN_DIR, stdout=log, stderr=subprocess.STDOUT, start_new_session=own_group)
+    sitl = Sitl(proc, n, log_path, log, own_group)
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if proc.poll() is not None:

@@ -42,10 +42,113 @@ def test_square_mission_goes_north_first_and_ends_at_home():
 def test_real_arducopter_flies_the_demo_and_lands_home():
     from backend.sitl.fly import fly
 
-    with launch.start(speedup=5) as sitl:
+    with launch.start(speedup=3) as sitl:
         report = fly(sitl.url, log=lambda *_: None)
     assert report.ok
     assert 9.5 <= report.max_alt_m <= 17.0  # 10 m flight, RTL climbs to 15 m
     assert report.fly_to_error_m < 1.0
-    assert len(report.corner_errors_m) == 4 and max(report.corner_errors_m) < 3.0  # "reached" = within its radius
+    # "Reached" = within WP_RADIUS_M (2 m), measured from our latest position sample. Samples arrive ~10x per
+    # real second, so at 3x speed the drone can move up to ~1.5 m between them: allow 2 + 1.5 m.
+    assert len(report.corner_errors_m) == 4 and max(report.corner_errors_m) < 3.5
     assert report.landed_from_home_m < 2.0
+
+
+# ---- Step 4: the 🛰 ArduPilot panel (bridge) --------------------------------------------------------
+
+from backend.sitl.bridge import PAD_OFFSET_M, SitlBridge, dronelab_step, step_metrics  # noqa: E402
+from backend.sitl.fly import attitude_ned_to_enu, latlon_to_ne  # noqa: E402
+
+
+def test_attitude_ned_to_enu_heading_and_pitch():
+    # Facing north (heading 0) = DroneLab yaw 90°; facing east (heading 90°) = yaw 0.
+    assert attitude_ned_to_enu(0, 0, 0)[2] == pytest.approx(math.pi / 2)
+    assert attitude_ned_to_enu(0, 0, math.pi / 2)[2] == pytest.approx(0.0, abs=1e-12)
+    assert attitude_ned_to_enu(0, 0, math.radians(225))[2] == pytest.approx(math.radians(-135))  # wraps
+    # Nose up is +pitch in NED (y right) but -pitch in DroneLab (y left); roll is the same.
+    assert attitude_ned_to_enu(0.1, 0.2, 0)[:2] == (0.1, -0.2)
+
+
+def test_latlon_to_ne_undoes_offset_latlon():
+    lat, lon = launch.HOME[:2]
+    n, e = latlon_to_ne(*offset_latlon(lat, lon, north_m=12.5, east_m=-7.0), lat, lon)
+    assert (n, e) == (pytest.approx(12.5, abs=1e-6), pytest.approx(-7.0, abs=1e-6))
+
+
+def test_step_metrics_on_a_known_curve():
+    t = [0.0, 1.0, 2.0, 3.0, 4.0, 4.0, 5.0, 6.0]  # a repeated time is ignored
+    north = [0.0, 1.0, 6.0, 10.5, 10.1, 10.1, 10.0, 10.0]
+    m = step_metrics(t, north, 10.0)
+    assert m["rise_s"] == pytest.approx(2.0)  # 1 m (10%) at 1 s -> 10.5 m (>= 90%) at 3 s
+    assert m["overshoot_m"] == pytest.approx(0.5)
+    assert m["settle_s"] == pytest.approx(4.0)  # within 0.2 m from t = 4 s on
+    assert m["peak_speed_m_s"] > 0
+    assert step_metrics([0, 1, 2], [0, 5, 7], 10.0)["settle_s"] is None  # never got there
+
+
+def test_dronelab_side_of_the_comparison():
+    d = dronelab_step()
+    m = step_metrics(d["t_s"], d["north_m"], 10.0)
+    assert d["north_m"][-1] == pytest.approx(10.0, abs=0.1)
+    assert m["peak_speed_m_s"] <= 3.1  # DroneLab's horizontal speed limit is 3 m/s
+    assert m["settle_s"] is not None and m["settle_s"] < 8
+
+
+def test_panel_commands_explain_themselves_without_sitl(monkeypatch):
+    b = SitlBridge()
+    assert b.status() is None  # nothing in the state frames until the panel is used
+    with pytest.raises(ValueError, match="Start ArduPilot first"):
+        b.handle({"action": "takeoff"})
+    with pytest.raises(ValueError, match="Unknown ArduPilot action"):
+        b.handle({"action": "flip"})
+    monkeypatch.setattr(launch, "is_built", lambda: False)
+    assert "isn't built" in b.start()
+    assert b.status()["state"] == "error"
+
+
+def test_sitl_command_over_the_websocket_without_starting_it():
+    from fastapi.testclient import TestClient
+
+    from backend import api
+
+    with TestClient(api.app).websocket_connect("/ws/sim") as ws:
+        ws.receive_json()  # Connected.
+        state = ws.receive_json()
+        assert state["type"] == "state" and "sitl" in state
+        ws.send_json({"cmd": "sitl", "action": "goto", "x_m": 1})  # not started (and y_m missing)
+        msg = ws.receive_json()
+        while msg.get("type") == "state":
+            msg = ws.receive_json()
+        assert msg["type"] == "error"
+
+
+@pytest.mark.skipif(os.environ.get("DRONELAB_SITL") != "1", reason="real SITL flight: set DRONELAB_SITL=1")
+@pytest.mark.skipif(not launch.is_built(), reason="ArduCopter SITL not built (scripts/sitl_setup.sh)")
+def test_real_arducopter_in_the_panel_takes_off_flies_to_compares_and_lands():
+    import time
+
+    b = SitlBridge()
+
+    def wait(cond, limit_s=150):
+        t = time.monotonic()
+        while not cond(b.status() or {}):
+            assert time.monotonic() - t < limit_s, b.status()
+            time.sleep(0.2)
+
+    try:
+        b.start(speedup=3)
+        wait(lambda s: s.get("state") == "ready")
+        assert b.status()["pos_m"][:2] == pytest.approx(list(PAD_OFFSET_M), abs=0.3)  # on its own pad
+        b.handle({"action": "takeoff", "alt_m": 5})
+        wait(lambda s: s.get("action") is None and s.get("armed"))
+        b.handle({"action": "goto", "x_m": 6, "y_m": 8, "alt_m": 5})
+        wait(lambda s: s.get("action") is None)
+        assert b.status()["local_m"] == pytest.approx([6, 8, 5], abs=0.3)
+        b.handle({"action": "compare"})
+        wait(lambda s: s.get("compare") is not None, 200)
+        ap = b.status()["compare"]["ardupilot"]
+        assert ap["north_m"][-1] == pytest.approx(10.0, abs=0.3) and ap["settle_s"] is not None
+        b.handle({"action": "rtl"})
+        wait(lambda s: s.get("action") is None and not s.get("armed"), 200)
+        assert b.status()["local_m"][:2] == pytest.approx([0, 0], abs=0.5)
+    finally:
+        b.stop()

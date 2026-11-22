@@ -261,3 +261,17 @@ table.diff td:nth-child(3) { color: var(--muted); text-align: center; }
 .failsafe-group.is-off { opacity: 0.7; }
 .wind-num { display: inline-block; min-width: 2.6em; text-align: right; }
 .gps-lost { color: var(--bad); }
+/* 🛰 ArduPilot (real ArduCopter in SITL) */
+.sitl-bar, .sitl-panel { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; }
+.sitl-panel .row + .row { margin-top: 4px; }
+.sitl-panel .chip.sitl-ready { border-color: #06d6a0; color: #06d6a0; }
+.sitl-panel .chip.sitl-starting, .sitl-panel .chip.sitl-waiting_gps { border-color: #ffd166; color: #ffd166; }
+.sitl-panel .chip.sitl-error { border-color: #ef476f; color: #ef476f; }
+.sitl-panel .armed { color: #ff8c42; }
+.sitl-msg { gap: 4px 12px; flex-wrap: wrap; }
+.sitl-compare { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-start; margin-top: 6px; }
+.sitl-chart { flex: 1 1 420px; min-width: 300px; max-width: 640px; }
+.sitl-compare table.metrics { border-collapse: collapse; font-size: 12px; }
+.sitl-compare table.metrics th, .sitl-compare table.metrics td { padding: 2px 8px; border-bottom: 1px solid var(--border); text-align: right; }
+.sitl-compare table.metrics th:first-child, .sitl-compare table.metrics td:first-child { text-align: left; }
+.sitl-compare .hint { flex-basis: 100%; margin: 0; font-size: 12px; opacity: 0.8; }

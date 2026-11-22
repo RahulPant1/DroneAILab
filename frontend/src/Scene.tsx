@@ -118,23 +118,56 @@ function Wingmen({ armLength }: { armLength: number }) {
   );
 }
 
+/** The real ArduPilot (SITL) drone, orange, on its own pad 4 m south of yours. */
+const ARDUPILOT_COLOR = '#ff8c42';
+
+function ArduPilotDrone({ armLength }: { armLength: number }) {
+  return (
+    <Drone armLength={armLength} body={ARDUPILOT_COLOR} label="ArduPilot" pick={() => {
+      const a = sim.latest?.sitl;
+      return a?.pos_m && a.quat ? { pos_m: a.pos_m, quat: a.quat, motor_pct: a.motor_pct ?? [0, 0, 0, 0] } : null;
+    }} />
+  );
+}
+
+function ArduPilotPad() {
+  const pad = useRef<THREE.Mesh>(null!);
+  useFrame(() => {
+    const a = sim.latest?.sitl;
+    pad.current.visible = !!a && a.state !== 'off';
+    if (a) pad.current.position.set(a.pad_m[0], a.pad_m[1], 0.005);
+  });
+  return (
+    <mesh ref={pad}>
+      <circleGeometry args={[0.6, 32]} />
+      <meshBasicMaterial color={ARDUPILOT_COLOR} transparent opacity={0.35} />
+    </mesh>
+  );
+}
+
+const pickOwnTrail = () => (sim.latest ? { t_s: sim.latest.t_s, pos_m: sim.latest.pos_m } : null);
+const pickArduPilotTrail = () => {
+  const a = sim.latest?.sitl;
+  return a?.pos_m && a.t_s !== undefined && a.state !== 'off' ? { t_s: a.t_s, pos_m: a.pos_m } : null;
+};
+
 /** The path flown so far: a line that grows as the drone moves (last ~1500 points). */
-function Trail() {
+function Trail({ pick = pickOwnTrail, color = '#4cc9f0' }: { pick?: () => { t_s: number; pos_m: Vec3 } | null; color?: string }) {
   const N = 1500;
   const { line, positions } = useMemo(() => {
     const positions = new Float32Array(N * 3);
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geom.setDrawRange(0, 0);
-    const line = new THREE.Line(geom, new THREE.LineBasicMaterial({ color: '#4cc9f0' }));
+    const line = new THREE.Line(geom, new THREE.LineBasicMaterial({ color }));
     line.frustumCulled = false;
     return { line, positions };
-  }, []);
+  }, [color]);
   const count = useRef(0);
   const lastT = useRef(-1);
 
   useFrame(() => {
-    const s = sim.latest;
+    const s = pick();
     if (!s || s.t_s === lastT.current) return;
     if (s.t_s < lastT.current) count.current = 0; // sim was reset: clear the trail
     lastT.current = s.t_s;
@@ -324,6 +357,9 @@ export default function Scene({ armLength, follow }: { armLength: number; follow
         <Markers armLength={armLength} />
         <Drone armLength={armLength} pick={() => sim.latest} />
         <Wingmen armLength={armLength} />
+        <ArduPilotPad />
+        <Trail pick={pickArduPilotTrail} color={ARDUPILOT_COLOR} />
+        <ArduPilotDrone armLength={armLength} />
       </group>
       <OrbitControls makeDefault target={[0, 0.5, 0]} maxPolarAngle={Math.PI / 2 - 0.02} />
       <FollowCamera enabled={follow} />
