@@ -19,6 +19,11 @@
 
   GET  /api/missions/scenarios -> built-in mission courses
   GET  /api/race/tracks       -> rings-race tracks + best times
+  GET  /api/logs               -> ArduPilot flight logs (simulator + uploaded .BIN)
+  POST /api/logs/upload        -> raw .BIN body + X-Filename header -> {id}
+  GET  /api/logs/{id}/analysis -> 🩺 log doctor: checks, timeline, charts
+  POST /api/logs/{id}/explain  -> {question?} -> local-LLM debrief (summary only, numbers checked)
+  GET  /api/sitl/faults       -> fault-injection scenarios for the ArduPilot panel ({"cmd": "sitl", "action": "fault", "fault": id})
   POST /api/missions/run       -> {mission: {waypoints, obstacles, cruise_alt_m, cruise_speed_m_s}, planner, wind_speed_m_s, seed}
 
   POST /api/assistant/ask      -> {question, context: [run refs], history} -> grounded answer
@@ -43,7 +48,7 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from .ai import assistant as ai_assistant
@@ -54,6 +59,9 @@ from .experiments import EXPERIMENTS, ExperimentError, get_experiment
 from .sim.config import GAIN_LIMITS, LIMITS, PRESETS, ConfigError, DroneConfig, get_preset, validate_config
 from .autonomy.live import MissionSim
 from .games.race import TRACKS, load_best_times
+from .logdoctor import store as logstore
+from .logdoctor.analyze import analyze as analyze_log
+from .logdoctor.explain import explain as explain_log
 from .sitl.bridge import BRIDGE
 from .storage import RunStore, StorageError, compare
 
@@ -215,6 +223,61 @@ def delete_run(run_id: str) -> dict:
 
 
 # ---- Missions (Phase 4): custom courses; the built-in ones are Lab experiment 7 ----
+
+
+@app.get("/api/logs")
+def logs_list() -> dict:
+    """ArduPilot flight logs: the simulator's own, and .BIN files you uploaded (newest first)."""
+    return {"logs": logstore.list_logs()}
+
+
+@app.post("/api/logs/upload")
+async def logs_upload(request: Request) -> dict:
+    """Upload an ArduPilot DataFlash log: the raw file as the body, its name in the X-Filename header."""
+    size = int(request.headers.get("content-length") or 0)
+    if size > logstore.MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"That log is larger than {logstore.MAX_UPLOAD_BYTES // 2**20} MB.")
+    data = await request.body()
+    try:
+        log_id = logstore.save_upload(request.headers.get("x-filename", "log.bin"), data)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {"id": log_id}
+
+
+@app.get("/api/logs/{log_id}/analysis")
+def logs_analysis(log_id: str) -> dict:
+    """The 🩺 log doctor's checks, timeline and charts for one log (cached)."""
+    if not _heavy_work.acquire(timeout=10):
+        raise HTTPException(429, "Another analysis is still going. Try again in a moment.")
+    try:
+        return logstore.cached_analysis(log_id, analyze_log)
+    except logstore.LogNotFound as exc:
+        raise HTTPException(404, str(exc)) from None
+    except Exception as exc:  # noqa: BLE001  (a corrupt or unusual log)
+        raise HTTPException(422, f"Couldn't read that log: {exc}") from None
+    finally:
+        _heavy_work.release()
+
+
+@app.post("/api/logs/{log_id}/explain")
+async def logs_explain(log_id: str, body: dict | None = None) -> dict:
+    """The local LLM's debrief of a log (it sees the analysis summary only, never the raw log)."""
+    try:
+        analysis = await asyncio.to_thread(logs_analysis, log_id)
+    except HTTPException:
+        raise
+    question = str((body or {}).get("question") or "")
+    return await _with_ai(lambda: explain_log(get_ai_client(), analysis, question))
+
+
+@app.get("/api/sitl/faults")
+def sitl_faults() -> dict:
+    """The fault-injection scenarios for the 🛰 ArduPilot panel, plus the last full report (if generated)."""
+    from .sitl.faults import FAULTS
+
+    return {"faults": [{"id": f.id, "title": f.title, "injected": f.injected, "expected": f.expected, "kind": f.kind,
+                        "frame": f.frame} for f in FAULTS]}
 
 
 @app.get("/api/race/tracks")

@@ -401,3 +401,51 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
 - Outbound internet: map tiles over HTTP (~40 connections to a CDN) + one HTTPS connection. Documented in lesson
   12; map is blank offline. Not verified visually (the window opens on the Windows desktop).
 - Test: +1 (settings writer). `scripts/qgc_setup.sh` re-downloads/unpacks and prints the apt line if libs are missing.
+
+## Showcase + fault-injection lab (2026-11-22, user-approved)
+- Privacy before going public: full history scanned (no secrets); the personal email was in all 28 commits, so the
+  user chose to rewrite it to the GitHub noreply address (filter-branch, bundle backup first, one force-push with
+  lease). Repo-local git config uses the noreply address from now on.
+- CI (GitHub Actions): pytest, frontend build, and a job that builds ArduCopter (cached on the setup script + patch
+  hash) and runs the real SITL flights + all fault scenarios.
+- README rewritten as a front page (architecture SVG, measured results, skills map, honest limits, licence note:
+  ArduPilot GPLv3 isn't in the repo; the 2-line patch stays GPLv3). LinkedIn draft in private/ (gitignored).
+- Fault lab (`backend/sitl/faults.py`, lesson 13, docs/results/): 11 scenarios on real ArduCopter 4.7.3, default
+  params, hold 20 m N of home at 10 m in GUIDED, inject via SIM_*, sample EKF belief + SIMSTATE truth at 5 Hz,
+  judge. Safety 8/8 PASS, limitations 3/3 CONFIRMED.
+- Things that surprised us (expectations corrected after measuring, all kept honest in the report):
+  - 20 m sustained GPS glitch: EKF BELIEVED it (drone truly moved 20.5 m). EK3_GLITCH_RAD (25 m) only rejects
+    big/brief jumps; a 100 m jump for 3 s was rejected (0.1 m). Split into "glitch" (safety) and "spoofing"
+    (limitation).
+  - Geofence: GUIDED silently refuses a destination outside the fence; with defaults AVOID_ENABLE brakes at the
+    edge (stopped at 40.6 m for 40 m, RTL only 88 s later). Breach test pushes with velocity commands and turns
+    avoidance off; the judge verifies the "fly to" was refused (no movement in the first 2 s).
+  - Weak motor at 60 % sinks (hover needs ~59 % throttle): use 80 % (holds within ~1 m).
+  - Hexa with a dead motor (default '+' hexa): stays up ~10–20 s, loses heading control, crash check disarms
+    (AngErr > 30°). Same at speedup 1, so not a speedup artifact. Documented as a limitation.
+  - Quad dead motor: no "Crash" message (it lands upright and bounces): judge on "SIM Hit ground at X m/s".
+- Panel: 🧪 Fault injection row (fresh SITL per run, other actions blocked while it runs), report card, and a white
+  wire ball at the SITL truth position when it differs from the EKF belief (> 0.5 m).
+- Tests: test_faults.py: 6 offline + 11 real (opt-in).
+
+## 🩺 Flight-log doctor (2026-11-22, user-approved "#3")
+- `backend/logdoctor/analyze.py`: reads ArduPilot DataFlash logs with pymavlink (0.3 s / ~70 MB RAM for a 4.4 MB
+  SITL log, filtering 16 message types), checks vibration, EKF test ratios, GPS, attitude/altitude/position
+  tracking (only while armed and > 1 m up), motor balance/saturation, battery, failsafes/errors (decoded from
+  ArduPilot 4.7's AP_Logger tables), and belief-vs-truth (SIM vs POS, simulator only). Timeline of modes, events,
+  errors and messages (start-up chatter filtered), charts thinned to <= 400 points.
+- `explain.py`: local Gemma debrief ("What happened / Most likely cause / What to check next", [Measured] /
+  [Hypothesis]) on the compact summary only (~2.7 k chars); numbers checked with the assistant's
+  `unverified_numbers`; logged. Measured: ~43 s per debrief, 0 unverified numbers on the GPS-loss and spoofing logs.
+  Sent the summary with ensure_ascii=False (the model copied "\u00d7" literally before).
+- `store.py`: SITL logs + uploads (`data/logs/`, .BIN only, DataFlash magic bytes checked, <= 100 MB), ids only
+  map to files in those two folders (path tricks -> 404); analysis cached per file size+mtime.
+- API: GET /api/logs, POST /api/logs/upload (raw body + X-Filename: no python-multipart needed),
+  GET /api/logs/{id}/analysis, POST /api/logs/{id}/explain. UI: 🩺 Logs tab; fault cards link to their log
+  (SITL's LASTLOG.TXT). SITL logs pruned to the newest 40 (they were 278 MB).
+- Comparison recorder: one showcase run had a 2.6 s hole in the telemetry (rise time came out as an impossible
+  0.8 s). Not reproducible in 2 instrumented runs (likely a WSL scheduling stall). Now the recorder measures its
+  largest gap, retries up to 3x if > 0.3 s, warns in the panel, and the showcase refuses to write a chart from it.
+- Geofence real test was flaky: peak distance 44.9–45.0 m vs a 45 m limit. Limit now fence + 10 m (braking at
+  4 m/s), with the reason in the code.
+- Tests: test_logdoctor.py: 5 offline (synthetic logs, store safety, fake-Ollama debrief) + 1 real (GPS-loss log).

@@ -126,6 +126,11 @@ class Flight:
         self.gps = {"fix": 0, "sats": 0}
         self.ekf_ok = False  # EKF has a good horizontal position
         self.motor_pct = [0.0, 0.0, 0.0, 0.0]
+        self.truth: dict | None = None  # SITL only: where the drone REALLY is (SIMSTATE), vs pos = what the EKF believes
+        self.params: dict[str, float] = {}  # from PARAM_VALUE (only the ones we set or asked for)
+        self.mode_log: list[tuple[float, str]] = []  # (autopilot time, mode) each time the mode changes
+        self.text_log: list[tuple[float, str]] = []  # (autopilot time, STATUSTEXT)
+        self.battery_v: float | None = None
         self.acks: dict[int, int] = {}  # command id -> result, from COMMAND_ACK
         self.reached: list[int] = []  # mission item numbers, from MISSION_ITEM_REACHED
         self.mission_msgs: queue.Queue = queue.Queue()  # MISSION_REQUEST(_INT) / MISSION_ACK during an upload
@@ -165,6 +170,14 @@ class Flight:
             elif kind == "HEARTBEAT" and msg.get_srcSystem() == self.m.target_system and msg.type != mav.MAV_TYPE_GCS:
                 self.armed = bool(msg.base_mode & mav.MAV_MODE_FLAG_SAFETY_ARMED)
                 self.mode = self.m.flightmode
+                if not self.mode_log or self.mode_log[-1][1] != self.mode:
+                    self.mode_log.append((self.t_s, self.mode))
+            elif kind == "SIMSTATE":  # the simulator's ground truth (lat/lng in degE7)
+                self.truth = {"lat": msg.lat / 1e7, "lon": msg.lng / 1e7}
+            elif kind == "PARAM_VALUE":
+                self.params[msg.param_id] = msg.param_value
+            elif kind == "SYS_STATUS":
+                self.battery_v = msg.voltage_battery / 1000.0 if msg.voltage_battery not in (0, 65535) else None
             elif kind == "GPS_RAW_INT":
                 self.gps = {"fix": msg.fix_type, "sats": msg.satellites_visible}
             elif kind == "EKF_STATUS_REPORT":
@@ -183,6 +196,7 @@ class Flight:
                 text = msg.text.strip()
                 if text and (not self.report.messages or self.report.messages[-1] != text):
                     self.report.messages.append(text)
+                    self.text_log.append((self.t_s, text))
                     self.log(f"  autopilot: {text}")
 
     def close(self) -> None:
@@ -242,6 +256,26 @@ class Flight:
         except TimeoutError:
             return False
         return self.acks.get(cmd) == self.mav.MAV_RESULT_ACCEPTED
+
+    def set_param(self, name: str, value: float, timeout_s: float = 5.0) -> None:
+        """Change one autopilot parameter and wait until it confirms the new value (PARAM_VALUE)."""
+        deadline = time.monotonic() + timeout_s * self.k
+        while True:
+            self.send(self.m.mav.param_set_send, self.m.target_system, self.m.target_component, name.encode(),
+                      float(value), self.mav.MAV_PARAM_TYPE_REAL32)
+            try:
+                self.wait_until(f"param {name}", lambda: abs(self.params.get(name, math.nan) - value) < 1e-4, 1.0)
+                return
+            except TimeoutError:
+                if time.monotonic() > deadline:
+                    raise TimeoutError(f"The autopilot didn't accept {name} = {value}") from None
+
+    def truth_enu(self) -> tuple[float, float] | None:
+        """Where the drone REALLY is (east, north of home), from the simulator. None outside SITL."""
+        if self.home is None or self.truth is None:
+            return None
+        n, e = latlon_to_ne(self.truth["lat"], self.truth["lon"], *self.home)
+        return e, n
 
     def set_mode(self, mode: str) -> None:
         mode_id = self.m.mode_mapping()[mode]

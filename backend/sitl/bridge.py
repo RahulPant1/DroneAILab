@@ -19,6 +19,8 @@ import numpy as np
 
 from backend.sim.frames import quat_from_euler
 from backend.sitl import launch
+from backend.sitl.faults import BY_ID as FAULTS_BY_ID
+from backend.sitl.faults import run_scenario
 from backend.sitl.fly import Cancelled, Flight, attitude_ned_to_enu, offset_latlon, square_mission
 
 PAD_OFFSET_M = (0.0, -4.0)  # ArduPilot's pad: 4 m south of DroneLab's start pad
@@ -28,6 +30,8 @@ COMPARE_DISTANCE_M = 10.0
 COMPARE_ALT_M = 5.0
 COMPARE_DURATION_S = 15.0
 COMPARE_HZ = 10.0
+MAX_SAMPLE_GAP_S = 0.3  # a longer hole in the recording would make rise/settle times wrong
+MAX_COMPARE_TRIES = 3
 
 
 def step_metrics(t_s: np.ndarray, pos_m: np.ndarray, target_m: float) -> dict:
@@ -80,26 +84,34 @@ class SitlBridge:
         self.action_thread: threading.Thread | None = None
         self.log: deque[str] = deque(maxlen=8)  # recent autopilot messages, newest last
         self.compare: dict | None = None
+        self.fault_result: dict | None = None  # the last fault-injection run (for the panel's report card)
         self.speedup = 1.0
 
     # --- life cycle ------------------------------------------------------------------------------
-    def start(self, speedup: float = 1.0) -> str:
+    def start(self, speedup: float = 1.0, fault: str | None = None) -> str:
         with self.lock:
-            if self.state in ("starting", "waiting_gps", "ready"):
+            if self.state in ("starting", "waiting_gps", "ready") and fault is None:
                 return "ArduPilot is already running."
             if not launch.is_built():
                 self.state, self.message = "error", "ArduCopter SITL isn't built yet: run ./scripts/sitl_setup.sh"
                 return self.message
             if not 0.5 <= speedup <= 5:
                 raise ValueError("speedup must be between 0.5 and 5")
+        if fault is not None:
+            self.stop()  # every fault scenario starts from a fresh autopilot with default settings
+        with self.lock:
             self.state, self.message, self.compare, self.speedup = "starting", "Starting ArduCopter SITL...", None, speedup
             self.log.clear()
-        threading.Thread(target=self._start_worker, args=(speedup,), name="sitl-start", daemon=True).start()
+        threading.Thread(target=self._start_worker, args=(speedup, fault), name="sitl-start", daemon=True).start()
+        if fault is not None:
+            return f"Fault injection: {FAULTS_BY_ID[fault].title}. Starting a fresh ArduPilot..."
         return "Starting ArduPilot (the real ArduCopter flight code). GPS + EKF take about 30–45 s to get ready."
 
-    def _start_worker(self, speedup: float) -> None:
+    def _start_worker(self, speedup: float, fault_id: str | None = None) -> None:
+        fault = FAULTS_BY_ID[fault_id] if fault_id else None
         try:
-            sitl = launch.start(speedup=speedup, wipe=True, own_group=False)  # dies with the server's group
+            sitl = launch.start(speedup=speedup, wipe=True, own_group=False,  # dies with the server's group
+                                frame=fault.frame if fault else "quad")
             with self.lock:
                 if self.state != "starting":  # stopped while starting
                     sitl.stop()
@@ -113,6 +125,8 @@ class SitlBridge:
             flight.wait_until("EKF position", lambda: flight.ekf_ok, 90)
             with self.lock:
                 self.state, self.message = "ready", "Ready: GPS + EKF have a position. Press Take off."
+            if fault is not None:
+                self._run_fault(flight, fault)
         except Cancelled:
             pass
         except Exception as exc:  # noqa: BLE001  (report anything to the UI)
@@ -145,12 +159,34 @@ class SitlBridge:
         if text.startswith("autopilot: "):
             self.log.append(text[len("autopilot: "):])
 
+    def _run_fault(self, flight: Flight, fault) -> None:
+        with self.lock:
+            self.action, self.fault_result = "fault injection", None
+        result = run_scenario(flight, fault, say=self._say)
+        with self.lock:
+            d = result.to_dict()
+            d.pop("samples")  # the panel shows the verdict and timeline; the full data is in the CLI report
+            self.fault_result = d
+            if self.action == "fault injection":
+                self.action = None
+            self.message = f"{result.title}: {result.verdict}. {result.observed}"
+
+    def run_fault(self, fault_id: str, speedup: float = 1.0) -> str:
+        if fault_id not in FAULTS_BY_ID:
+            raise ValueError(f"Unknown fault {fault_id!r}. Choose one of: {', '.join(FAULTS_BY_ID)}")
+        with self.lock:
+            if self.action == "fault injection":
+                raise ValueError("A fault-injection run is already going.")
+        return self.start(speedup, fault=fault_id)
+
     # --- actions (each runs in its own thread; a new one replaces the old) -------------------------
     def _run(self, name: str, work) -> str:
         with self.lock:
             flight = self.flight
             if self.state != "ready" or flight is None:
                 raise ValueError("ArduPilot isn't ready yet." if self.state != "off" else "Start ArduPilot first.")
+            if self.action == "fault injection":
+                raise ValueError("Wait for the fault-injection run to finish (or press Stop).")
             old = self.action_thread
         if old and old.is_alive():
             flight.cancel.set()
@@ -256,33 +292,47 @@ class SitlBridge:
 
         return self._run(label, work)
 
+    def _record_step(self, f: Flight) -> tuple[list[float], list[float]]:
+        """Line up over the pad at COMPARE_ALT_M, command 'COMPARE_DISTANCE_M north' and record north vs time."""
+        self._say("Comparing: lining up over the pad...")
+        f.fly_to_local(0.0, 0.0, COMPARE_ALT_M, settle_s=3.0)
+        n0 = f.local_enu()[1]
+        self._say(f"Comparing: 'fly {COMPARE_DISTANCE_M:.0f} m north', recording {COMPARE_DURATION_S:.0f} s...")
+        f.send_position_target(0.0, COMPARE_DISTANCE_M, COMPARE_ALT_M)
+        t0 = f.t_s
+        ts: list[float] = []
+        ns: list[float] = []
+        while f.t_s - t0 < COMPARE_DURATION_S:
+            with f.lock:
+                t = round(f.t_s - t0, 2)
+                if not ts or t > ts[-1]:  # one sample per new autopilot time
+                    ts.append(t)
+                    ns.append(round(f.local_enu()[1] - n0, 3))
+            f.sleep(1.0 / COMPARE_HZ / self.speedup)
+        return ts, ns
+
     def run_compare(self) -> str:
         """Fly the same 'COMPARE_DISTANCE_M north' step on ArduPilot (live) and DroneLab (headless), then plot both."""
 
         def work(f: Flight) -> None:
             self._ensure_flying(f, COMPARE_ALT_M)
-            self._say("Comparing: lining up over the pad...")
-            f.fly_to_local(0.0, 0.0, COMPARE_ALT_M, settle_s=3.0)
-            n0 = f.local_enu()[1]
-            self._say(f"Comparing: 'fly {COMPARE_DISTANCE_M:.0f} m north', recording {COMPARE_DURATION_S:.0f} s...")
-            f.send_position_target(0.0, COMPARE_DISTANCE_M, COMPARE_ALT_M)
-            t0 = f.t_s
-            ts, ns = [], []
-            while f.t_s - t0 < COMPARE_DURATION_S:
-                with f.lock:
-                    t = round(f.t_s - t0, 2)
-                    if not ts or t > ts[-1]:  # one sample per new autopilot time
-                        ts.append(t)
-                        ns.append(round(f.local_enu()[1] - n0, 3))
-                f.sleep(1.0 / COMPARE_HZ / self.speedup)
+            for attempt in range(1, MAX_COMPARE_TRIES + 1):
+                ts, ns = self._record_step(f)
+                gap = max((b - a for a, b in zip(ts, ts[1:])), default=0.0)
+                if gap <= MAX_SAMPLE_GAP_S:
+                    break
+                self._say(f"Comparing: the telemetry stream paused for {gap:.1f} s, so that recording is unreliable. "
+                          f"Retrying ({attempt}/{MAX_COMPARE_TRIES})...")
             ours = dronelab_step()
             with self.lock:
                 self.compare = {
                     "distance_m": COMPARE_DISTANCE_M,
-                    "ardupilot": {"t_s": ts, "north_m": ns, **step_metrics(ts, ns, COMPARE_DISTANCE_M)},
+                    "ardupilot": {"t_s": ts, "north_m": ns, **step_metrics(ts, ns, COMPARE_DISTANCE_M),
+                                  "max_gap_s": round(gap, 2)},
                     "dronelab": {**ours, **step_metrics(ours["t_s"], ours["north_m"], COMPARE_DISTANCE_M)},
                 }
-            self._say("Comparison done: see the chart.")
+            self._say("Comparison done: see the chart." if gap <= MAX_SAMPLE_GAP_S else
+                      f"Comparison done, but the recording still has a {gap:.1f} s gap: its numbers aren't reliable.")
 
         return self._run("compare", work)
 
@@ -293,12 +343,13 @@ class SitlBridge:
                 return None
             out: dict = {"state": self.state, "message": self.message, "action": self.action,
                          "log": list(self.log), "pad_m": list(PAD_OFFSET_M), "compare": self.compare,
-                         "speedup": self.speedup}
+                         "speedup": self.speedup, "fault_result": self.fault_result}
             f = self.flight
         if f is None:
             return out
         with f.lock:
             enu = f.local_enu()
+            true = f.truth_enu()
             roll, pitch, yaw = attitude_ned_to_enu(*f.att)
             out.update({
                 "mode": f.mode,
@@ -316,6 +367,8 @@ class SitlBridge:
         if enu is not None:
             out["local_m"] = [round(v, 3) for v in enu]
             out["pos_m"] = [round(enu[0] + PAD_OFFSET_M[0], 3), round(enu[1] + PAD_OFFSET_M[1], 3), round(enu[2], 3)]
+            if true is not None:  # where the simulator says it REALLY is (the drone drawn above is the EKF's belief)
+                out["truth_m"] = [round(true[0] + PAD_OFFSET_M[0], 3), round(true[1] + PAD_OFFSET_M[1], 3), round(enu[2], 3)]
         return out
 
     def handle(self, args: dict) -> str:
@@ -337,6 +390,8 @@ class SitlBridge:
             return self.set_mode(action.upper())
         if action == "compare":
             return self.run_compare()
+        if action == "fault":
+            return self.run_fault(str(args.get("fault")), float(args.get("speedup", 1.0)))
         raise ValueError(f"Unknown ArduPilot action: {action!r}")
 
 

@@ -216,6 +216,10 @@ Steps 1–4 approved and done (2026-11-22; for step 3 the user installed 3 GStre
 - Footprint exception: the ArduPilot source + build is about 2–3 GB, outside the < 1 GB target (user approved). Deleting `external/` removes it.
 - SITL and MAVProxy talk MAVLink over TCP/UDP on 127.0.0.1 only.
 
+### After Phase 5 (approved by the user 2026-11-22)
+Showcase (public repo, CI that flies ArduPilot, README), fault-injection lab on ArduPilot SITL, then an AI flight-log
+doctor (local Gemma explains ArduPilot logs, offline).
+
 ### Roadmap (do NOT install or scaffold)
 PX4 SITL + Gazebo + MAVSDK, ROS 2, camera/vision, RL, NVIDIA Warp acceleration.
 

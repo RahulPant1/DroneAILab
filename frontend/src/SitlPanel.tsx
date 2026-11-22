@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
-import { sim, type SitlStatus, type StepRun } from './sim';
+import { api, sim, type FaultInfo, type FaultResult, type SitlStatus, type StepRun } from './sim';
 
 const STATE_TEXT: Record<SitlStatus['state'], string> = {
   off: 'off',
@@ -16,13 +16,20 @@ const STATE_TEXT: Record<SitlStatus['state'], string> = {
 
 const send = (action: string, extra: Record<string, unknown> = {}) => sim.send('sitl', { action, ...extra });
 
-export default function SitlBar({ a, offline, onLearn }: { a: SitlStatus | null | undefined; offline: boolean; onLearn: (slug: string) => void }) {
+export default function SitlBar({ a, offline, onLearn, onOpenLog }: { a: SitlStatus | null | undefined; offline: boolean; onLearn: (slug: string) => void; onOpenLog: (id: string) => void }) {
   const [open, setOpen] = useState(false);
   const [target, setTarget] = useState({ x: 0, y: 10, alt: 5 });
   const running = !!a && a.state !== 'off' && a.state !== 'error';
   const ready = a?.state === 'ready';
   const flying = ready && !!a?.armed;
   const busy = !!a?.action;
+  const faultRunning = a?.action === 'fault injection';
+  const [faults, setFaults] = useState<FaultInfo[]>([]);
+  const [faultId, setFaultId] = useState('gps_loss');
+  useEffect(() => {
+    if (open || running) api.sitlFaults().then((r) => setFaults(r.faults)).catch(() => setFaults([]));
+  }, [open, running]);
+  const chosen = faults.find((f) => f.id === faultId);
 
   if (!open && !running) {
     return (
@@ -58,6 +65,23 @@ export default function SitlBar({ a, offline, onLearn }: { a: SitlStatus | null 
         <button className="link" onClick={() => onLearn('12-ardupilot-sitl')}>📖 Learn: ArduPilot</button>
         {!running && <button className="link" onClick={() => setOpen(false)}>hide</button>}
       </div>
+      <div className="row small fault-row">
+        <label className="inline" title="Break the real autopilot on purpose (SITL's SIM_* switches) and check it does the safe thing. Each run starts a fresh ArduPilot, takes off, holds 20 m north of its pad, then injects the fault.">
+          🧪 Fault injection
+          <select value={faultId} disabled={offline || faultRunning} onChange={(e) => setFaultId(e.target.value)}>
+            <optgroup label="Safety checks (must do the safe thing)">
+              {faults.filter((f) => f.kind === 'safety').map((f) => <option key={f.id} value={f.id}>{f.title}</option>)}
+            </optgroup>
+            <optgroup label="Known limitations (worth knowing)">
+              {faults.filter((f) => f.kind === 'limitation').map((f) => <option key={f.id} value={f.id}>{f.title}</option>)}
+            </optgroup>
+          </select>
+        </label>
+        <button disabled={offline || faultRunning || faults.length === 0} onClick={() => send('fault', { fault: faultId })}>
+          {faultRunning ? '⏳ running…' : '▶ Run fault test'}
+        </button>
+        {chosen && <span className="keys" title={chosen.injected}>expected: {chosen.expected}</span>}
+      </div>
       {running && (
         <div className="row small">
           <button disabled={offline || !ready || busy} onClick={() => send('takeoff', { alt_m: target.alt })}
@@ -83,7 +107,29 @@ export default function SitlBar({ a, offline, onLearn }: { a: SitlStatus | null 
           {a.log.length > 0 && <span className="keys" title="The autopilot's own messages (STATUSTEXT), newest last">autopilot: {a.log.slice(-3).join(' · ')}</span>}
         </div>
       )}
+      {a?.fault_result && <FaultCard r={a.fault_result} onOpenLog={onOpenLog} />}
       {a?.compare && <Compare c={a.compare} />}
+    </div>
+  );
+}
+
+const VERDICT_CLASS: Record<string, string> = { PASS: 'pass', CONFIRMED: 'confirmed', FAIL: 'fail', ERROR: 'fail' };
+
+function FaultCard({ r, onOpenLog }: { r: FaultResult; onOpenLog: (id: string) => void }) {
+  return (
+    <div className={`fault-card ${VERDICT_CLASS[r.verdict] ?? ''}`}>
+      <div className="row small">
+        <b>🧪 {r.title}</b>
+        <span className="chip verdict">{r.verdict}</span>
+        <span className="keys">{r.kind === 'limitation' ? 'known limitation' : 'safety check'} · {r.frame}</span>
+        {r.log && <button className="link" onClick={() => onOpenLog(r.log!)} title="Open this flight's ArduPilot log in the 🩺 Logs tab">🩺 Analyse this flight's log</button>}
+      </div>
+      <p><b>Injected:</b> {r.injected}</p>
+      <p><b>Expected:</b> {r.expected}</p>
+      <p><b>Observed:</b> {r.observed}</p>
+      {r.events.length > 0 && (
+        <p className="keys"><b>Timeline:</b> {r.events.slice(0, 8).map(([t, text]) => `${t >= 0 ? '+' : ''}${t.toFixed(1)} s ${text}`).join(' · ')}</p>
+      )}
     </div>
   );
 }
@@ -116,6 +162,9 @@ function Compare({ c }: { c: NonNullable<SitlStatus['compare']> }) {
           {row('DroneLab', c.dronelab)}
         </tbody>
       </table>
+      {(c.ardupilot.max_gap_s ?? 0) > 0.3 && (
+        <p className="error">⚠ The ArduPilot recording has a {c.ardupilot.max_gap_s!.toFixed(1)} s gap (the telemetry stream paused), so its numbers aren't reliable. Run the comparison again.</p>
+      )}
       <p className="hint">Same job, two autopilots. Both are cascaded position → velocity → attitude controllers; the differences come from their gains and speed/acceleration limits (DroneLab: 3 m/s; ArduPilot GUIDED: WPNAV speed and jerk limits).</p>
     </div>
   );

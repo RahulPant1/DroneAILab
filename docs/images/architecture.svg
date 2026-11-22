@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="13">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5b6b86"/>
+    </marker>
+  </defs>
+  <rect width="900" height="470" fill="#ffffff"/>
+  <text x="450" y="28" text-anchor="middle" font-size="18" font-weight="bold" fill="#1d3557">DroneLab AI: architecture (everything runs on one laptop, offline)</text>
+
+  <!-- Browser -->
+  <rect x="20" y="50" width="250" height="250" rx="10" fill="#eef6fb" stroke="#4cc9f0" stroke-width="2"/>
+  <text x="145" y="74" text-anchor="middle" font-weight="bold" fill="#1d3557">Browser UI</text>
+  <text x="145" y="92" text-anchor="middle" fill="#555">React 19 · TypeScript · Vite</text>
+  <text x="36" y="120" fill="#1d3557">• Fly: 3D view (Three.js), keyboard</text>
+  <text x="36" y="140" fill="#1d3557">• Lab: 7 experiments, uPlot charts</text>
+  <text x="36" y="160" fill="#1d3557">• History: compare saved runs</text>
+  <text x="36" y="180" fill="#1d3557">• Missions, race game, wingmen</text>
+  <text x="36" y="200" fill="#1d3557">• 🛰 ArduPilot panel: fly, compare,</text>
+  <text x="50" y="218" fill="#1d3557">fault injection, truth vs belief</text>
+  <text x="36" y="238" fill="#1d3557">• 💬 AI assistant panel</text>
+  <text x="36" y="258" fill="#1d3557">• 🩺 Logs: log doctor + AI debrief</text>
+  <text x="36" y="278" fill="#1d3557">• 14 lessons with self-checks</text>
+
+  <!-- arrows browser <-> backend -->
+  <line x1="272" y1="150" x2="338" y2="150" stroke="#5b6b86" stroke-width="2" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="305" y="140" text-anchor="middle" font-size="11" fill="#5b6b86">WebSocket</text>
+  <text x="305" y="168" text-anchor="middle" font-size="11" fill="#5b6b86">30 Hz + REST</text>
+
+  <!-- Backend -->
+  <rect x="340" y="50" width="300" height="400" rx="10" fill="#f4f7fb" stroke="#5b6b86" stroke-width="2"/>
+  <text x="490" y="74" text-anchor="middle" font-weight="bold" fill="#1d3557">Python backend (FastAPI, 127.0.0.1)</text>
+
+  <rect x="356" y="86" width="268" height="112" rx="8" fill="#ffffff" stroke="#4cc9f0"/>
+  <text x="368" y="106" font-weight="bold" fill="#1d3557">DroneLab simulator (NumPy, CPU)</text>
+  <text x="368" y="126" fill="#333">6-DOF rigid body physics · 500 Hz</text>
+  <text x="368" y="144" fill="#333">Cascaded PID: position → velocity →</text>
+  <text x="368" y="160" fill="#333">  tilt → body rate · 250 Hz</text>
+  <text x="368" y="178" fill="#333">Noisy IMU/GPS/baro + complementary-</text>
+  <text x="368" y="194" fill="#333">  filter estimator · wind and gusts</text>
+
+  <rect x="356" y="206" width="268" height="62" rx="8" fill="#ffffff" stroke="#06d6a0"/>
+  <text x="368" y="226" font-weight="bold" fill="#1d3557">Autonomy</text>
+  <text x="368" y="244" fill="#333">Waypoint missions · A* · potential field</text>
+  <text x="368" y="261" fill="#333">Multi-drone formation + collision avoid</text>
+
+  <rect x="356" y="276" width="268" height="78" rx="8" fill="#ffffff" stroke="#ff8c42" stroke-width="2"/>
+  <text x="368" y="296" font-weight="bold" fill="#1d3557">ArduPilot bridge + fault lab (pymavlink)</text>
+  <text x="368" y="314" fill="#333">Commands, mission upload, telemetry</text>
+  <text x="368" y="331" fill="#333">11 fault scenarios: inject SIM_* params,</text>
+  <text x="368" y="347" fill="#333">  judge failsafes vs ground truth</text>
+
+  <rect x="356" y="362" width="268" height="76" rx="8" fill="#ffffff" stroke="#b388ff"/>
+  <text x="368" y="382" font-weight="bold" fill="#1d3557">AI assistant (local LLM)</text>
+  <text x="368" y="400" fill="#333">Gemma via Ollama (HTTP, offline): tutor</text>
+  <text x="368" y="417" fill="#333">+ flight-log debriefs; grounded in</text>
+  <text x="368" y="433" fill="#333">  measured data, numbers checked</text>
+
+  <!-- MAVLink arrow -->
+  <line x1="626" y1="315" x2="688" y2="315" stroke="#ff8c42" stroke-width="2" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="657" y="305" text-anchor="middle" font-size="11" fill="#b5651d">MAVLink</text>
+  <text x="657" y="333" text-anchor="middle" font-size="11" fill="#b5651d">TCP :5760</text>
+
+  <!-- ArduPilot SITL -->
+  <rect x="690" y="250" width="190" height="130" rx="10" fill="#fff4eb" stroke="#ff8c42" stroke-width="2"/>
+  <text x="785" y="274" text-anchor="middle" font-weight="bold" fill="#1d3557">ArduCopter 4.7.3</text>
+  <text x="785" y="292" text-anchor="middle" fill="#555">real flight code, in SITL</text>
+  <text x="704" y="316" fill="#333">EKF3 · failsafes · AUTO</text>
+  <text x="704" y="334" fill="#333">GUIDED · RTL · geofence</text>
+  <text x="704" y="352" fill="#333">built from source, patched</text>
+  <text x="704" y="368" fill="#333">to listen on 127.0.0.1 only</text>
+
+  <!-- QGC -->
+  <rect x="690" y="80" width="190" height="96" rx="10" fill="#f7f7f7" stroke="#888" stroke-width="2"/>
+  <text x="785" y="104" text-anchor="middle" font-weight="bold" fill="#1d3557">QGroundControl</text>
+  <text x="785" y="122" text-anchor="middle" fill="#555">or MAVProxy</text>
+  <text x="704" y="146" fill="#333">map, mission planning,</text>
+  <text x="704" y="164" fill="#333">parameters (same flight)</text>
+  <line x1="785" y1="248" x2="785" y2="178" stroke="#888" stroke-width="2" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="795" y="218" font-size="11" fill="#666">MAVLink :5762</text>
+
+  <!-- CI note -->
+  <rect x="20" y="320" width="300" height="130" rx="10" fill="#f0fbf6" stroke="#2a9d8f" stroke-width="2"/>
+  <text x="170" y="344" text-anchor="middle" font-weight="bold" fill="#1d3557">Tested on every push (GitHub Actions)</text>
+  <text x="36" y="368" fill="#333">• 190+ tests: physics, control, estimator,</text>
+  <text x="50" y="386" fill="#333">missions, API, AI (fake LLM)</text>
+  <text x="36" y="406" fill="#333">• Builds ArduCopter and flies it: mission,</text>
+  <text x="50" y="424" fill="#333">RTL, panel, all 11 fault scenarios</text>
+  <text x="36" y="442" fill="#333">• Web app type-check + build</text>
+</svg>

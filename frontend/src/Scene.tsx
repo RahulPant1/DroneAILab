@@ -130,6 +130,25 @@ function ArduPilotDrone({ armLength }: { armLength: number }) {
   );
 }
 
+/** Where the ArduPilot drone REALLY is (from the simulator), shown only when it differs from what its EKF
+ *  believes (the orange drone): e.g. GPS spoofing. */
+function ArduPilotTruth() {
+  const m = useRef<THREE.Mesh>(null!);
+  useFrame(() => {
+    const a = sim.latest?.sitl;
+    const t = a?.truth_m, p = a?.pos_m;
+    const show = !!t && !!p && a?.state !== 'off' && Math.hypot(t[0] - p[0], t[1] - p[1]) > 0.5;
+    m.current.visible = show;
+    if (show) m.current.position.set(t![0], t![1], t![2]);
+  });
+  return (
+    <mesh ref={m}>
+      <sphereGeometry args={[0.35, 16, 12]} />
+      <meshBasicMaterial color="#ffffff" wireframe />
+    </mesh>
+  );
+}
+
 function ArduPilotPad() {
   const pad = useRef<THREE.Mesh>(null!);
   useFrame(() => {
@@ -360,6 +379,7 @@ export default function Scene({ armLength, follow }: { armLength: number; follow
         <ArduPilotPad />
         <Trail pick={pickArduPilotTrail} color={ARDUPILOT_COLOR} />
         <ArduPilotDrone armLength={armLength} />
+        <ArduPilotTruth />
       </group>
       <OrbitControls makeDefault target={[0, 0.5, 0]} maxPolarAngle={Math.PI / 2 - 0.02} />
       <FollowCamera enabled={follow} />

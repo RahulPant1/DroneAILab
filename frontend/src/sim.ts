@@ -37,6 +37,25 @@ export interface SimState {
   sitl: SitlStatus | null; // the 🛰 ArduPilot panel (real ArduCopter SITL), null until it's used
 }
 
+/** Fault injection on real ArduPilot: what we broke, what should happen, what did. */
+export interface FaultInfo {
+  id: string;
+  title: string;
+  injected: string;
+  expected: string;
+  kind: 'safety' | 'limitation';
+  frame: string;
+}
+export interface FaultResult extends Omit<FaultInfo, 'id'> {
+  id: string;
+  observed: string;
+  verdict: 'PASS' | 'FAIL' | 'CONFIRMED' | 'NOT REPRODUCED' | 'ERROR' | 'not run';
+  metrics: Record<string, number | boolean | null>;
+  events: [number, string][]; // (seconds after the fault, what happened)
+  wall_s: number;
+  log: string | null; // the flight's ArduPilot log id, for the 🩺 Logs tab
+}
+
 /** One 'fly 10 m north' step, for the ArduPilot vs DroneLab comparison. */
 export interface StepRun {
   t_s: number[];
@@ -45,6 +64,7 @@ export interface StepRun {
   overshoot_m: number;
   settle_s: number | null; // stays within 0.2 m from here on (null = not within the window)
   peak_speed_m_s: number | null;
+  max_gap_s?: number; // largest hole in the recording (ArduPilot only); > 0.3 s = numbers unreliable
 }
 
 /** Real ArduCopter flight code running in SITL, shown next to your drone. Positions are ENU, already
@@ -57,6 +77,8 @@ export interface SitlStatus {
   pad_m: [number, number];
   speedup: number;
   compare: { distance_m: number; ardupilot: StepRun; dronelab: StepRun } | null;
+  fault_result: FaultResult | null; // the last fault-injection run
+  truth_m?: Vec3; // where the simulator says it REALLY is (pos_m is what ArduPilot's EKF believes)
   mode?: string; // ArduCopter flight mode: STABILIZE, GUIDED, AUTO, RTL, LAND...
   armed?: boolean;
   gps_fix?: number; // 3 = 3D fix
@@ -278,6 +300,7 @@ export const api = {
   health: () => getJson<Health>('/api/health'),
   presets: () => getJson<PresetsResponse>('/api/presets'),
   scenarios: () => getJson<{ planners: string[]; scenarios: Record<string, { title: string }> }>('/api/missions/scenarios'),
+  sitlFaults: () => getJson<{ faults: FaultInfo[] }>('/api/sitl/faults'),
   raceTracks: () => getJson<{ tracks: Record<string, { title: string; tip: string; rings: number; best_s: number | null }> }>('/api/race/tracks'),
   learn: (slug: string) => getJson<{ markdown: string }>(`/api/learn/${slug}`),
   validate: (config: DroneConfig) =>

@@ -275,3 +275,35 @@ table.diff td:nth-child(3) { color: var(--muted); text-align: center; }
 .sitl-compare table.metrics th, .sitl-compare table.metrics td { padding: 2px 8px; border-bottom: 1px solid var(--border); text-align: right; }
 .sitl-compare table.metrics th:first-child, .sitl-compare table.metrics td:first-child { text-align: left; }
 .sitl-compare .hint { flex-basis: 100%; margin: 0; font-size: 12px; opacity: 0.8; }
+.fault-row select { max-width: 220px; }
+.fault-row .keys { flex: 1 1 260px; opacity: 0.85; }
+.fault-card { border: 1px solid var(--border); border-left: 4px solid #f4a261; border-radius: 6px; padding: 6px 10px; margin-top: 6px; font-size: 13px; }
+.fault-card.pass { border-left-color: #2a9d8f; }
+.fault-card.confirmed { border-left-color: #b5651d; }
+.fault-card.fail { border-left-color: #e63946; }
+.fault-card p { margin: 2px 0; }
+.fault-card .chip.verdict { font-weight: bold; }
+/* 🩺 Logs */
+.logs { display: flex; gap: 16px; align-items: flex-start; padding: 12px; }
+.logs-list { flex: 0 0 250px; }
+.logs-list ul { list-style: none; padding: 0; margin: 8px 0; max-height: 70vh; overflow-y: auto; }
+.logs-list li { display: flex; flex-direction: column; margin-bottom: 4px; }
+.logs-list .link.active { font-weight: bold; text-decoration: underline; }
+.logs-main { flex: 1; min-width: 0; }
+.logs-main h2 { margin: 0 12px 0 0; font-size: 18px; }
+table.checks { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px; }
+table.checks th, table.checks td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); vertical-align: top; cursor: help; }
+table.checks tr.bad td { background: rgba(239, 71, 111, 0.12); }
+table.checks tr.warn td { background: rgba(255, 209, 102, 0.10); }
+.debrief { margin: 10px 0; }
+.debrief .answer pre { white-space: pre-wrap; font-family: inherit; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+.debrief .warn { color: #ffd166; }
+ul.timeline { list-style: none; padding: 0; font-size: 13px; columns: 2 320px; }
+ul.timeline li { break-inside: avoid; margin-bottom: 2px; }
+ul.timeline li.error { color: #ef476f; }
+ul.timeline li.mode { color: #4cc9f0; }
+.log-charts { display: flex; flex-wrap: wrap; gap: 12px; }
+.log-chart { flex: 1 1 420px; max-width: 560px; }
+.log-chart h4 { margin: 4px 0; font-size: 13px; }
+.error { color: #ef476f; }
+@media (max-width: 800px) { .logs { flex-direction: column; } .logs-list { flex-basis: auto; width: 100%; } }

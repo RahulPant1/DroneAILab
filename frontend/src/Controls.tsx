@@ -96,7 +96,7 @@ function useKeyboardSticks(takeoffAltM: number): void {
   }, []);
 }
 
-export default function Controls({ follow, setFollow, onLearn }: { follow: boolean; setFollow: (v: boolean) => void; onLearn: (slug: string) => void }) {
+export default function Controls({ follow, setFollow, onLearn, onOpenLog }: { follow: boolean; setFollow: (v: boolean) => void; onLearn: (slug: string) => void; onOpenLog: (id: string) => void }) {
   const [alt, setAlt] = useState(2);
   useKeyboardSticks(alt);
   const { status } = useSimUi();
@@ -154,7 +154,7 @@ export default function Controls({ follow, setFollow, onLearn }: { follow: boole
       <FormationBar status={status} onLearn={onLearn} />
       <WindBar status={status} onLearn={onLearn} />
       <SensorBar status={status} onLearn={onLearn} />
-      <SitlBar a={s?.sitl} offline={offline} onLearn={onLearn} />
+      <SitlBar a={s?.sitl} offline={offline} onLearn={onLearn} onOpenLog={onOpenLog} />
     </div>
   );
 }

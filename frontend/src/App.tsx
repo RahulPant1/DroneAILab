@@ -5,6 +5,7 @@ import Assistant from './Assistant';
 import { assistantStore, useAssistant } from './assistant';
 import Controls from './Controls';
 import { RaceHud } from './RaceView';
+import Logs from './Logs';
 import History from './History';
 import Lab from './Lab';
 import Learn from './Learn';
@@ -13,12 +14,13 @@ import { api, useSimUi, useThrottledState, type Health } from './sim';
 import Studio from './Studio';
 import Telemetry from './Telemetry';
 
-type TabId = 'fly' | 'lab' | 'history';
+type TabId = 'fly' | 'lab' | 'history' | 'logs';
 
 const TABS: { id: TabId; label: string; ready: boolean; note?: string }[] = [
   { id: 'fly', label: 'Fly', ready: true },
   { id: 'lab', label: 'Lab', ready: true },
   { id: 'history', label: 'History', ready: true },
+  { id: 'logs', label: '🩺 Logs', ready: true },
 ];
 
 function useHealth(): Health | null {
@@ -43,7 +45,7 @@ function MessageBar() {
 function initialTab(): TabId {
   try {
     const saved = localStorage.getItem('dronelab.tab');
-    if (saved === 'fly' || saved === 'lab' || saved === 'history') return saved;
+    if (saved === 'fly' || saved === 'lab' || saved === 'history' || saved === 'logs') return saved;
   } catch {
     /* storage unavailable */
   }
@@ -53,6 +55,7 @@ function initialTab(): TabId {
 export default function App() {
   const { status, config } = useSimUi();
   const health = useHealth();
+  const [openLogId, setOpenLogId] = useState<string | null>(null); // a log to show when switching to 🩺 Logs
   const [tab, setTabState] = useState<TabId>(initialTab);
   const [learnSlug, setLearnSlug] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
@@ -99,13 +102,14 @@ export default function App() {
               <MessageBar />
               <RaceHud />
             </div>
-            <Controls follow={follow} setFollow={setFollow} onLearn={setLearnSlug} />
+            <Controls follow={follow} setFollow={setFollow} onLearn={setLearnSlug} onOpenLog={(id) => { setOpenLogId(id); setTab('logs'); }} />
           </section>
           <Telemetry onLearn={setLearnSlug} />
         </main>
       )}
       {tab === 'lab' && <main className="scroll"><Lab onLearn={setLearnSlug} /></main>}
       {tab === 'history' && <main className="scroll"><History /></main>}
+      {tab === 'logs' && <main className="scroll"><Logs initialId={openLogId} /></main>}
 
       {assistantOpen && <Assistant health={health} onApplied={() => setTab('lab')} />}
       {learnSlug && <Learn slug={learnSlug} onClose={() => setLearnSlug(null)} />}

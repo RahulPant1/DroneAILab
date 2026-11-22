@@ -1,0 +1,72 @@
+# Every push: the test suite, the web app build, and a real ArduCopter (ArduPilot) flight in SITL.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Simulator + app tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Python 3.12 venv + pinned deps
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python -r backend/requirements.txt
+      - name: pytest (physics, control, estimation, missions, games, formation, API, AI with a fake LLM)
+        run: .venv/bin/pytest -q
+
+  frontend:
+    name: Web app build (TypeScript + Vite)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+
+  ardupilot-sitl:
+    name: Real ArduCopter flights in SITL
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Python 3.12 venv + pinned deps
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python -r backend/requirements.txt
+      - name: Cache the ArduCopter build
+        uses: actions/cache@v4
+        with:
+          path: external/ardupilot
+          key: ardupilot-${{ runner.os }}-${{ hashFiles('scripts/sitl_setup.sh', 'scripts/patches/*.patch') }}
+      - name: Download + build ArduCopter 4.7.3 for SITL (cached after the first run)
+        run: ./scripts/sitl_setup.sh
+      - name: Fly it (take-off, fly-to, mission, RTL, the DroneLab panel, fault injection, log doctor)
+        env:
+          DRONELAB_SITL: "1"
+        run: .venv/bin/pytest -q backend/tests/test_sitl.py backend/tests/test_faults.py backend/tests/test_logdoctor.py
+      - name: Keep the SITL logs if something failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sitl-logs
+          path: external/sitl-run/*.log
+          if-no-files-found: ignore

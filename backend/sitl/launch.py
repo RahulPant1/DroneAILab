@@ -20,6 +20,16 @@ RUN_DIR = ROOT / "external" / "sitl-run"  # SITL writes its parameter storage (e
 # heading (degrees). Any open spot works; this one matches ArduPilot's own docs and tests.
 HOME = (-35.363261, 149.165230, 584.0, 353.0)
 BASE_PORT = 5760  # instance N listens for a ground station on TCP 5760 + 10*N
+KEEP_LOGS = 40  # SITL writes a ~4 MB flight log per flight; keep only the newest ones
+
+
+def prune_logs(keep: int = KEEP_LOGS) -> int:
+    """Delete all but the newest `keep` SITL flight logs (logs/NNNNNNNN.BIN, which SITL creates in RUN_DIR)."""
+    logs = sorted((RUN_DIR / "logs").glob("[0-9]" * 8 + ".BIN"), key=lambda p: p.stat().st_mtime)
+    old = logs[:-keep] if keep > 0 else logs
+    for p in old:
+        p.unlink()
+    return len(old)
 
 
 def is_built() -> bool:
@@ -82,27 +92,37 @@ class Sitl:
         self.stop()
 
 
+FRAMES = {  # SITL model -> extra default parameters on top of copter.parm (as ArduPilot's sim_vehicle.py does)
+    "quad": [],
+    "hexa": ["copter-hexa.parm"],
+}
+
+
 def start(speedup: float = 1.0, wipe: bool = True, instance: int | None = None, timeout_s: float = 30.0,
-          own_group: bool = True) -> Sitl:
+          own_group: bool = True, frame: str = "quad") -> Sitl:
     """Launch ArduCopter SITL (a "+" quad on its built-in physics) and wait until it accepts a ground station.
 
     speedup: run the simulation faster than real time (the autopilot doesn't notice).
     wipe: start from the default parameters instead of whatever the last run saved.
+    frame: "quad" (4 motors) or "hexa" (6 motors: can survive one motor failing).
     own_group: True = its own process group (Ctrl+C in a terminal doesn't hit it; we stop it ourselves).
       False = stay in the caller's group, so whatever stops the DroneLab server (./run.sh) stops SITL too.
     """
+    if frame not in FRAMES:
+        raise ValueError(f"frame must be one of {sorted(FRAMES)}")
     if not is_built():
         raise FileNotFoundError(f"ArduCopter SITL is not built yet ({BINARY}). Run scripts/sitl_setup.sh first.")
     n = free_instance() if instance is None else instance
     RUN_DIR.mkdir(parents=True, exist_ok=True)
+    prune_logs()
     log_path = RUN_DIR / f"arducopter-{n}.log"
     log = open(log_path, "w")
     cmd = [
         str(BINARY),
-        "--model", "quad",
+        "--model", frame,
         "--speedup", str(speedup),
         "--home", ",".join(str(v) for v in HOME),
-        "--defaults", str(DEFAULTS),
+        "--defaults", ",".join(str(p) for p in [DEFAULTS, *(DEFAULTS.parent / f for f in FRAMES[frame])]),
         "-I", str(n),
         "--serial0", "tcp:0:wait",  # SERIAL0 = the ground-station link (port 5760 + 10N)
     ]
