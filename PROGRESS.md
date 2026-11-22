@@ -341,3 +341,29 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   Telemetry "closest gap". Lesson 11. WS `formation` cmd; snapshot `formation`.
 - Tests: +7 (177).
 
+
+## Phase 5 steps 1–2: ArduPilot SITL (done 2026-11-22, user-approved; steps 3–4 need a separate OK)
+- PRD updated: Phase 5 section (footprint exception for `external/`), §7 allows MAVLink only to a SIMULATED
+  autopilot on 127.0.0.1. Roadmap line no longer lists multi-drone (done).
+- `scripts/sitl_setup.sh` (re-runnable, no sudo/apt; does NOT run ArduPilot's install-prereqs): shallow clone of
+  Copter-4.7.3 into `external/ardupilot`, only the SITL submodules (waf, mavlink, lwip, littlefs, DroneCAN x4),
+  applies `scripts/patches/ardupilot-sitl-loopback.patch`, `waf configure --board sitl && waf copter -j3`.
+  Measured: build ~3 min total on 4 cores, peak ~280 MB RAM for the waf process; `external/` = 965 MB.
+- Loopback patch: upstream SITL listens on 0.0.0.0 (TCP 5760/5762/5763 in UARTDriver, UDP 5501 RC input in
+  AP_RCProtocol_UDP). Patched both to 127.0.0.1; verified with `ss` mid-flight.
+- Python extras (`backend/requirements-sitl.txt`): empy 3.3.4, pexpect, pymavlink, dronecan, lxml, pyserial,
+  fastcrc; MAVProxy 1.8.75 with `--no-deps` (its full deps pull opencv, matplotlib, vtk: not needed for the text
+  ground station; harmless "No module named 'PIL'" warning).
+- `backend/sitl/launch.py`: start/stop arducopter (own process group, free instance, ready = "Waiting for
+  connection" in its log; we don't poke the port because SITL takes the first connection as its ground station).
+- `backend/sitl/fly.py` (pymavlink): pre-arm wait, GUIDED arm + takeoff 10 m, fly-to 20 m N (ENU -> NED), upload a
+  4-WP square mission (MISSION_COUNT / MISSION_REQUEST_INT / MISSION_ITEM_INT), AUTO, RTL, report.
+  Measured (speedup 5): armed at ~46 s, fly-to error 0.03 m, corners 0.03 / 1.81 / 1.80 / 0.23 m (WP_RADIUS_M = 2 m,
+  it turns early), landed 0.02 m from home. RTL skips its 15 m climb when already near home (RTL cone).
+- `scripts/sitl.sh` -> `backend/sitl/ground_station.py`: SITL + MAVProxy in the terminal; verified guided / arm /
+  takeoff / fly-to / RTL by piping commands. Ctrl+C quits (MAVProxy's `exit` needs `requireexit`).
+- Bugs found and fixed: (1) waiting with recv_match(type=X) dropped position messages, so corner errors were
+  measured from a stale position (20 / 28 m); now one reader records acks and "reached" events. (2) MAVProxy forks a
+  helper; stopping only the parent left it running: `stop_tree` stops MAVProxy's whole process tree.
+- Tests: +3 unit (ENU->NED, lat/lon offsets, square mission) + 1 opt-in real flight (`DRONELAB_SITL=1`, ~1 min).
+  180 passed, 1 skipped. Lesson 12 (terminal-based; not linked from the UI yet).

@@ -3,7 +3,7 @@
 **Source of truth:** `docs/PRD.md`. Read it fully before any work.
 
 ## Current phase
-Phase 4 done (missions: waypoints, box obstacles, straight/potential/A* planners, mission metrics) + missions, live wind and live sensor noise in the 3D Fly view (177 tests) + rings race game + multi-drone formation. All PRD phases complete; Roadmap items need explicit approval. Update this line at every phase change.
+Phase 4 done (missions: waypoints, box obstacles, straight/potential/A* planners, mission metrics) + missions, live wind and live sensor noise in the 3D Fly view (180 tests + 1 opt-in real-SITL test) + rings race game + multi-drone formation. Phase 5 steps 1–2 done (ArduCopter SITL built in `external/`, MAVProxy + scripted pymavlink flight); steps 3–4 (QGroundControl, SITL in the 3D view) need approval. Other Roadmap items need explicit approval. Update this line at every phase change.
 
 ## Machine facts (from Phase 0)
 Project at `~/DroneAILab`. Ubuntu 22.04 on WSL2 (mirrored networking). WSL has 9 GB RAM, **swap = 0**, 4 CPUs. Treat RAM as tight.
@@ -38,3 +38,4 @@ plain-English docstrings on physics/control functions.
 - Sensors off (`SensorConfig.enabled=False`) = controller sees truth; keep it that way for the Phase 1 tests.
 - Avoid drei `<Html>` (React 19 unmount warnings) and drei `Text`/`Environment` (fetch from CDN; the app must work offline).
 - Headless: `.venv/bin/python -m backend.cli hover --alt 2`
+- ArduPilot SITL: `backend/sitl/` (launch, fly, ground_station), `scripts/sitl_setup.sh`, `scripts/sitl.sh`. Source+build in `external/` (gitignored), pinned Copter-4.7.3, patched to listen on 127.0.0.1 (`scripts/patches/`). Extra deps in `backend/requirements-sitl.txt`; MAVProxy installed `--no-deps` (its deps pull opencv/matplotlib/vtk). Real-flight test opt-in: `DRONELAB_SITL=1`. MAVProxy forks helpers: stop the whole tree (`ground_station.stop_tree`).

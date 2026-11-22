@@ -1,0 +1,13 @@
+# Phase 5 (ArduPilot SITL) extras, pinned 2026-11-22. Not needed for the rest of DroneLab.
+# Install: uv pip install --python .venv/bin/python -r backend/requirements-sitl.txt
+#          uv pip install --python .venv/bin/python --no-deps mavproxy==1.8.75
+# (MAVProxy goes in with --no-deps: its full dependency list pulls in opencv, matplotlib and vtk,
+#  which only its graphical modules use. The command-line ground station works without them.)
+empy==3.3.4          # ArduPilot's build uses this template engine (must be 3.x)
+pexpect==4.9.0       # used by ArduPilot's sim_vehicle.py
+ptyprocess==0.7.0
+pymavlink==2.4.50    # MAVLink messages (our scripted flight + MAVProxy)
+fastcrc==0.5.0       # pymavlink dependency
+dronecan==1.0.27     # ArduPilot's build generates DroneCAN code
+lxml==6.1.3          # MAVLink code generator
+pyserial==3.5        # MAVProxy imports it; we only ever connect over 127.0.0.1

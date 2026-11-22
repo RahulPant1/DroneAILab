@@ -70,6 +70,16 @@ The model unloads itself after 2 idle minutes (`ollama ps`). If Ollama is off, t
 `rm -rf ~/DroneAILab` removes everything this project added. The only things left are the shared
 download caches (`~/.cache/uv`, `~/.npm`), which other projects use too.
 
+## Real autopilot software: ArduPilot SITL (optional, Phase 5)
+Builds the real ArduCopter flight code for this laptop and flies it in its own simulator (no sudo; ~1 GB in `external/`, gitignored; first build ~5–15 min):
+```bash
+./scripts/sitl_setup.sh                    # once: download ArduPilot 4.7.3 + build (re-run is safe)
+./scripts/sitl.sh                          # fly it yourself with MAVProxy (Ctrl+C quits)
+.venv/bin/python -m backend.sitl.fly       # scripted flight: take-off, fly-to, square mission, RTL + report
+DRONELAB_SITL=1 .venv/bin/pytest -q backend/tests/test_sitl.py   # the real-flight test (~1 min)
+```
+Lesson: [docs/learn/12-ardupilot-sitl.md](docs/learn/12-ardupilot-sitl.md). Remove it all with `rm -rf external/`.
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).

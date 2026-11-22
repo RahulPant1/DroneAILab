@@ -1,0 +1,25 @@
+diff --git a/libraries/AP_HAL_SITL/UARTDriver.cpp b/libraries/AP_HAL_SITL/UARTDriver.cpp
+index 358fb61..7923077 100644
+--- a/libraries/AP_HAL_SITL/UARTDriver.cpp
++++ b/libraries/AP_HAL_SITL/UARTDriver.cpp
+@@ -339,6 +339,7 @@ void UARTDriver::_tcp_start_connection(uint16_t port, bool wait_for_connection)
+             _listen_sockaddr.sin_port = htons(_sitlState->base_port() + port);
+         }
+         _listen_sockaddr.sin_family = AF_INET;
++        _listen_sockaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);  // DroneLab: 127.0.0.1 only
+ 
+         _listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+         if (_listen_fd == -1) {
+diff --git a/libraries/AP_RCProtocol/AP_RCProtocol_UDP.cpp b/libraries/AP_RCProtocol/AP_RCProtocol_UDP.cpp
+index ac589d4..c2fff03 100644
+--- a/libraries/AP_RCProtocol/AP_RCProtocol_UDP.cpp
++++ b/libraries/AP_RCProtocol/AP_RCProtocol_UDP.cpp
+@@ -46,7 +46,7 @@ bool AP_RCProtocol_UDP::init()
+     if (!rc_in.reuseaddress()) {
+         return false;
+     }
+-    if (!rc_in.bind("0.0.0.0", sitl->rcin_port)) {
++    if (!rc_in.bind("127.0.0.1", sitl->rcin_port)) {  // DroneLab: 127.0.0.1 only
+         return false;
+     }
+     if (!rc_in.set_blocking(false)) {

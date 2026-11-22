@@ -10,3 +10,4 @@ data/experiments/*
 data/assistant_log*.jsonl
 .claude/settings.local.json
 data/race_best.json
+external/

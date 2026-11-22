@@ -210,8 +210,14 @@ Plus: save a run, history list, **compare 2 runs on overlaid plots**, and export
 ### Phase 4: Basic autonomy (only when the user asks)
 Waypoint missions, planned vs actual path, box obstacles, simple avoidance (potential field or A* on a 2D grid), and mission metrics.
 
+### Phase 5: Real autopilot software in simulation (ArduPilot SITL), approved by the user 2026-11-22
+Steps 1–2 approved: build ArduCopter SITL (its built-in physics, no Gazebo) from a pinned stable tag inside `~/DroneAILab/external/ardupilot` (gitignored), and fly it from the command line (MAVProxy, plus a scripted pymavlink flight with a test). Steps 3–4 (QGroundControl, showing SITL in the DroneLab 3D view / `SimBackend`) need a separate go-ahead.
+- Uses the g++ already installed. No sudo/apt: ArduPilot's `install-prereqs-ubuntu.sh` is NOT run. Its Python build/run deps go in the project `.venv`, pinned in `backend/requirements-sitl.txt`.
+- Footprint exception: the ArduPilot source + build is about 2–3 GB, outside the < 1 GB target (user approved). Deleting `external/` removes it.
+- SITL and MAVProxy talk MAVLink over TCP/UDP on 127.0.0.1 only.
+
 ### Roadmap (do NOT install or scaffold)
-PX4 SITL + Gazebo + MAVSDK, ROS 2, camera/vision, RL, multi-drone, NVIDIA Warp acceleration.
+PX4 SITL + Gazebo + MAVSDK, ROS 2, camera/vision, RL, NVIDIA Warp acceleration.
 
 ---
 
@@ -224,7 +230,7 @@ PX4 SITL + Gazebo + MAVSDK, ROS 2, camera/vision, RL, multi-drone, NVIDIA Warp a
 ---
 
 ## 7. Safety
-Simulation only. No real-drone interfaces (no MAVLink to hardware, no serial/USB/Bluetooth). AI-proposed configs are always validated and require user approval. The AI has no OS, shell or file access. No data leaves the machine.
+Simulation only. No real-drone interfaces (no MAVLink to hardware, no serial/USB/Bluetooth/radio). MAVLink is allowed only to a simulated autopilot (ArduPilot SITL) on this laptop, over 127.0.0.1. AI-proposed configs are always validated and require user approval. The AI has no OS, shell or file access. No data leaves the machine.
 
 ---
 
