@@ -43,7 +43,7 @@ export interface PlotDef {
   y_label: string;
   how_to_read: string;
   series: SeriesDef[];
-  kind?: 'time' | 'map';
+  kind?: 'time' | 'map' | 'images';
   extra?: MapExtra;
 }
 
@@ -62,6 +62,20 @@ export interface MapExtra {
   safety_zone_m: number;
   discovered?: [number, number][]; // lidar planner: where its lidar hit something (its map)
   plans?: [number, number][][]; // lidar planner: every route it chose (the first is the straight line)
+  fields?: [number, number][][]; // survey: the field outline(s)
+  no_fly?: ObstacleDef[]; // no-fly zones (never entered)
+  photos?: [number, number, number, number][]; // survey: x, y, height, line direction (rad) of each photo
+  footprint_per_m?: [number, number]; // photo footprint (across, along) per metre of height
+  gaps?: [number, number][]; // survey: spots no photo covered
+  pads?: [number, number, number][]; // landing pads: x, y, marker size
+  estimate?: [number[], number[]]; // where the drone THOUGHT it was (x list, y list)
+  window?: [number, number, number, number]; // x0, x1, y0, y1: zoom the map to this area
+  first_index?: number; // draw the paths from this sample on (e.g. only near the pad)
+}
+
+/** A strip of pictures (e.g. the down camera on the way down). */
+export interface ImagesExtra {
+  frames: { alt_m: number; t_s: number; image: string; w: number; h: number; detection: { box: [number, number, number, number]; pixels: number } | null }[];
 }
 
 export type Params = Record<string, number | string>;

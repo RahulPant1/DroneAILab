@@ -10,6 +10,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import CourseView, { courseBounds } from './CourseView';
+import FarmView, { siteBounds } from './FarmView';
 import Label from './Label3D';
 import RaceView, { raceBounds } from './RaceView';
 import { sim, useSimUi, type Vec3 } from './sim';
@@ -380,7 +381,13 @@ function WindArrow() {
 /** The loaded mission course (if any), and a camera move to show all of it whenever a different course loads. */
 function CourseLayer() {
   const { course, race } = useSimUi();
-  return <>{course && <CourseView course={course} />}{race && <RaceView race={race} />}</>;
+  return (
+    <>
+      {course && <CourseView course={course} />}
+      {course?.site && <FarmView site={course.site} perM={course.footprint_per_m ?? [1.4, 1.05]} />}
+      {race && <RaceView race={race} />}
+    </>
+  );
 }
 
 function FrameCourse() {
@@ -394,7 +401,7 @@ function FrameCourse() {
     if (!controls || id === last.current) return;
     last.current = id;
     if (course || race) {
-      const { cx, cy, span } = course ? courseBounds(course) : raceBounds(race!);
+      const { cx, cy, span } = course ? (course.site ? siteBounds(course.site) : courseBounds(course)) : raceBounds(race!);
       controls.target.set(cx, 1, -cy); // three.js coords: (east, up, -north)
       camera.position.set(cx, 1 + span * 0.75, -cy + span * 0.95); // from the south, looking north
     } else {

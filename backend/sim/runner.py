@@ -30,7 +30,7 @@ from .sensors import SensorConfig, Sensors, validate_sensors
 PHYSICS_DT_S = 0.002  # 500 Hz
 CONTROL_EVERY_N_STEPS = 2  # 250 Hz
 TELEMETRY_EVERY_N_STEPS = 10  # 50 Hz
-MAX_DURATION_S = 120.0
+MAX_DURATION_S = 600.0  # long enough for a field survey
 SATURATION_PCT = 99.9
 
 TELEMETRY_CHANNELS = (
@@ -177,6 +177,7 @@ FAILSAFE_EXTRA_DRAG_N_S_M = 0.4  # default; the live view has a slider (0 = real
 MAX_FAILSAFE_DRAG_N_S_M = 1.0
 MIN_FAILSAFE_TILT_DEG, MAX_FAILSAFE_TILT_DEG = 2.0, 20.0  # the live view's tilt slider range
 MAX_CATCH_UP_S = 0.1  # if the server stalls, skip ahead rather than racing to catch up
+TIME_SCALES = (1.0, 2.0, 4.0, 8.0)  # ⏩ live-view speed-up choices
 
 
 class RealtimeSim:
@@ -198,6 +199,7 @@ class RealtimeSim:
         self._gps_lost_at_s = 0.0
         self._failsafe_was_on = False
         self.battery_cfg: BatteryConfig | None = None  # None = unlimited power (default); kept across resets
+        self.time_scale = 1.0  # ⏩ 1 = real time; 2, 4, 8 = faster (handy for long surveys); kept across resets
         self.reset(config, seed)
 
     def reset(self, config: DroneConfig | None = None, seed: int | None = None) -> None:
@@ -340,7 +342,7 @@ class RealtimeSim:
         """Simulate `wall_dt_s` seconds of real time (nothing happens while paused)."""
         if self.paused:
             return 0
-        self._time_debt_s += min(max(wall_dt_s, 0.0), MAX_CATCH_UP_S)
+        self._time_debt_s += min(max(wall_dt_s, 0.0), MAX_CATCH_UP_S) * self.time_scale
         n_steps = int(self._time_debt_s / PHYSICS_DT_S)
         self._time_debt_s -= n_steps * PHYSICS_DT_S
         for _ in range(n_steps):
@@ -381,6 +383,12 @@ class RealtimeSim:
         if cmd == "sticks":
             self.pilot.set_sticks(Sticks(**{k: float(args.get(k, 0.0)) for k in ("forward", "left", "up", "yaw")}))
             return ""
+        if cmd == "speed":
+            factor = float(args.get("factor", 1.0))
+            if factor not in TIME_SCALES:
+                raise ValueError(f"Speed must be one of {', '.join(f'{v:g}' for v in TIME_SCALES)}.")
+            self.time_scale = factor
+            return "Real time." if factor == 1 else f"⏩ Time runs {factor:g}× faster than real."
         if cmd == "battery":
             return self.set_battery(bool(args.get("enabled", False)), args.get("cells", 3), args.get("capacity_mah", 3000.0),
                                     args.get("drain_speedup", 1.0))
@@ -463,6 +471,7 @@ class RealtimeSim:
             "t_s": round(s.time_s, 3),
             "mode": self.pilot.mode,
             "paused": self.paused,
+            "time_scale": self.time_scale,
             "armed": sp.armed,
             "on_ground": s.on_ground,
             "pos_m": r(s.pos_m),
@@ -533,6 +542,8 @@ def run_headless(
     env: EnvConfig | None = None,
     sensors: SensorConfig | None = None,
     stop_when: Callable[[], bool] | None = None,
+    battery: BatteryConfig | None = None,
+    telemetry_every_n_steps: int = TELEMETRY_EVERY_N_STEPS,
 ) -> RunResult:
     """Run a whole flight as fast as possible and return a RunResult.
 
@@ -544,7 +555,7 @@ def run_headless(
     if not 0 < duration_s <= MAX_DURATION_S:
         raise ValueError(f"duration_s must be between 0 and {MAX_DURATION_S} s, got {duration_s}.")
     sim = LightweightSim()
-    state = sim.reset(config, seed, initial_state, env, sensors)
+    state = sim.reset(config, seed, initial_state, env, sensors, battery=battery)
     if hasattr(setpoint, "setpoint_for"):
         setpoint_at = lambda t: setpoint.setpoint_for(sim.estimate, t, state)  # noqa: E731  (belief, time, truth)
     elif callable(setpoint):
@@ -605,7 +616,7 @@ def run_headless(
                     "message": "At least one motor hit 100 %: the controller asked for more than the motors can give.",
                 }
             )
-        if i % TELEMETRY_EVERY_N_STEPS == 0:
+        if i % telemetry_every_n_steps == 0:
             record(sp)
             if stop_when is not None and stop_when():
                 break
@@ -626,6 +637,8 @@ def run_headless(
         "mean_motor_pct_second_half": mean_motor_pct(t, motors, float(t[-1]) / 2.0),  # actual length (runs can stop early)
         "rotor_energy_j": sim.rotor_energy_j,
     }
+    if sim.battery:
+        metrics.update({"battery_used_mah": round(sim.battery.used_mah, 1), "battery_left_pct": round(100 * sim.battery.soc, 1)})
     return RunResult(
         run_type=run_type,
         config=config.to_dict(),

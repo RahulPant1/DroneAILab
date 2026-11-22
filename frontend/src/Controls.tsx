@@ -1,6 +1,7 @@
 // Flight buttons, keyboard nudges, a "fly to" box, and the mission bar (course + autopilot).
 
 import { useEffect, useRef, useState } from 'react';
+import MissionPlanner from './MissionPlanner';
 import { api, compassName, sim, useSimUi, useThrottledState, type SimState } from './sim';
 import SitlBar from './SitlPanel';
 
@@ -102,7 +103,7 @@ export default function Controls({ follow, setFollow, onLearn, onOpenLog }: { fo
   const { status } = useSimUi();
   const s = useThrottledState(5);
   const [target, setTarget] = useState({ x: 3, y: 0, alt: 2 });
-  const auto = s?.mode === 'mission'; // the mission autopilot is flying; Hover / Land / Go take over
+  const auto = s?.mode === 'mission' || s?.mode === 'precland'; // an autopilot is flying; Hover / Land / Go take over
   const flying = s?.mode === 'takeoff' || s?.mode === 'hover' || auto;
   const offline = status !== 'open';
   const settling = (s?.gps_settle_left_s ?? 0) > 0 && s?.mode === 'idle';
@@ -121,6 +122,12 @@ export default function Controls({ follow, setFollow, onLearn, onOpenLog }: { fo
         <button disabled={offline || !flying} onClick={() => sim.send('hover')} title="Stop and hold the current position">⏸ Hover here</button>
         <button disabled={offline || !(flying || s?.mode === 'land')} onClick={() => sim.send('land')}>🛬 Land</button>
         <span className="spacer" />
+        <label className="inline" title="Run the simulation faster than real time (handy for long surveys)">
+          ⏩
+          <select value={s?.time_scale ?? 1} disabled={offline} onChange={(e) => sim.send('speed', { factor: Number(e.target.value) })}>
+            {[1, 2, 4, 8].map((f) => <option key={f} value={f}>{f === 1 ? 'real time' : `${f}× faster`}</option>)}
+          </select>
+        </label>
         <button disabled={offline} onClick={() => sim.send(s?.paused ? 'resume' : 'pause')}>{s?.paused ? '▶ Resume' : '⏯ Pause'}</button>
         <button disabled={offline} onClick={() => sim.send('reset')} title="Put the drone back on the ground at the start">↺ Reset</button>
       </div>
@@ -197,6 +204,7 @@ const PLANNER_LABELS: Record<string, string> = {
   potential: 'Potential field (reactive)',
   astar: 'A* (plans ahead)',
   lidar: 'Lidar: sense & replan (knows no obstacles)',
+  plan: 'flight plan',
 };
 
 const PHASE_LABELS: Record<string, string> = { gps: 'waiting for GPS to settle', takeoff: 'taking off', cruise: 'flying the route', land: 'landing' };
@@ -211,18 +219,38 @@ function MissionBar({ s, offline, onLearn }: { s: SimState | null; offline: bool
     api.scenarios().then((r) => setScenarios(r.scenarios)).catch(() => setScenarios({}));
   }, []);
   const m = s?.mission;
+  const farm = course?.id === 'farm';
+  const [planning, setPlanning] = useState(false);
+  const flying = !!s && s.armed && !s.on_ground;
 
   return (
     <div className="mission-bar">
+      {planning && <MissionPlanner onClose={() => setPlanning(false)} onLearn={(slug) => { setPlanning(false); onLearn(slug); }} />}
       <div className="row small">
         <label className="inline" title="Put obstacles and waypoints into the 3D world. The drone moves to the start point.">
           🗺 Course
           <select value={course?.id ?? ''} disabled={offline} onChange={(e) => sim.send('course', { scenario: e.target.value || null })}>
             <option value="">Free flight (no obstacles)</option>
+            <option value="farm">🌾 Hillside farm (surveys, deliveries, landing pads)</option>
             {Object.entries(scenarios).map(([id, sc]) => <option key={id} value={id}>{sc.title}</option>)}
           </select>
         </label>
-        {course && (
+        {farm && (
+          <>
+            <button className="primary" disabled={offline} onClick={() => setPlanning(true)} title="Say what to do (AI) or build a task list; see the route and safety checks; then fly">
+              🧭 Mission planner
+            </button>
+            <button disabled={offline || !flying} onClick={() => sim.send('precland', { mode: 'vision' })}
+              title="Land on the nearest pad (within 12 m): the down camera finds its marker and steers onto it">🎯 Land on pad (camera)</button>
+            <button disabled={offline || !flying} onClick={() => sim.send('precland', { mode: 'gps' })}
+              title="Land on the nearest pad using only its GPS position (compare how far off it lands, with 📡 Sensor noise + GPS drift)">GPS only</button>
+            <label className="inline" title="Show what a camera under the drone sees">
+              <input type="checkbox" checked={!!s?.camera && !s.camera.landing} disabled={offline} onChange={(e) => sim.send('camera', { enabled: e.target.checked })} /> 📷 Camera
+            </label>
+            {s?.survey && <span className="keys">📷 {s.survey.photos_taken} photos{s.survey.on_line ? ' · on a survey line' : ''}</span>}
+          </>
+        )}
+        {course && !farm && (
           <>
             <label className="inline" title="How the autopilot gets past obstacles">
               planner
@@ -244,17 +272,29 @@ function MissionBar({ s, offline, onLearn }: { s: SimState | null; offline: bool
           <input type="checkbox" checked={!!s?.lidar && !m} disabled={offline || !!m} onChange={(e) => sim.send('lidar', { enabled: e.target.checked })} /> 📡 Lidar
         </label>
         {s?.lidar && <span className="keys" title="Cells of obstacle the lidar has hit so far">map: {s.lidar.cells} cells{s.lidar.replans != null ? ` · ${s.lidar.replans} replans` : ''}</span>}
-        <button className="link" onClick={() => onLearn('09-exp-missions')}>📖 Learn: missions</button>
+        {farm ? (
+          <>
+            <button className="link" onClick={() => onLearn('17-survey')}>📖 Surveys</button>
+            <button className="link" onClick={() => onLearn('18-precision-landing')}>📖 Precision landing</button>
+          </>
+        ) : <button className="link" onClick={() => onLearn('09-exp-missions')}>📖 Learn: missions</button>}
         <button className="link" onClick={() => onLearn('15-sense-and-avoid')}>📖 Learn: sense and avoid</button>
         <span className="spacer" />
         {m && (
           <span className="mission-status">
-            Autopilot ({m.planner}): {PHASE_LABELS[m.phase] ?? m.phase}
+            Autopilot ({PLANNER_LABELS[m.planner]?.split(' (')[0] ?? m.planner}): {PHASE_LABELS[m.phase] ?? m.phase}
             {m.phase === 'cruise' && ` · heading for waypoint ${Math.min(m.next_wp, m.waypoints_total)} of ${m.waypoints_total}`}
           </span>
         )}
       </div>
-      {course && (
+      {farm && (
+        <p className="muted small course-legend">
+          Green = fields · grey boxes = buildings (fly over them if higher, otherwise around) · red = no-fly zones (never enter) ·
+          🅿 pads with a black marker ring · orange dashes = {course.site?.geofence_radius_m ?? 90} m geofence · blue rectangles = photos taken
+          (orange = ArduPilot's) · yellow dashes = the planned route.{s?.no_fly ? <b className="error"> ⚠ You are inside the no-fly zone '{s.no_fly}'!</b> : null}
+        </p>
+      )}
+      {course && !farm && (
         <p className="muted small course-legend">
           Grey boxes = obstacles ({course.obstacles[0]?.height_m ?? 4} m tall; fly above them to pass over) · orange ring on the ground = keep-out zone ·
           rings = waypoints at {course.cruise_alt_m} m (green done, yellow next) · yellow dashes = planned route. Touching a box stops the motors.

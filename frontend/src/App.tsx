@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Assistant from './Assistant';
+import CameraView from './CameraView';
 import { assistantStore, useAssistant } from './assistant';
 import Controls from './Controls';
 import { RaceHud } from './RaceView';
@@ -101,6 +102,7 @@ export default function App() {
               <Scene armLength={config?.arm_length_m ?? 0.225} follow={follow} />
               <MessageBar />
               <RaceHud />
+              <CameraView />
             </div>
             <Controls follow={follow} setFollow={setFollow} onLearn={setLearnSlug} onOpenLog={(id) => { setOpenLogId(id); setTab('logs'); }} />
           </section>

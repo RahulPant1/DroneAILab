@@ -177,3 +177,22 @@ def test_qgc_settings_turn_off_auto_connect_and_keep_one_local_tcp_link(tmp_path
     assert "count=1" in links and f"Link0\\name={LINK_NAME}" in links and "Link1" not in links
     assert "Link0\\host=127.0.0.1" in links and "Link0\\port=5762" in links and "Link0\\type=2" in links
     assert text.count("[LinkConfigurations]") == 1 and "EnableAutoUpload=false" in text
+
+
+def test_wind_direction_conversion_to_ardupilot():
+    from backend.sitl.plan_flight import wind_params
+
+    assert wind_params(5.0, 90.0)["SIM_WIND_DIR"] == pytest.approx(180.0)  # blowing north = coming from the south
+    assert wind_params(5.0, 0.0)["SIM_WIND_DIR"] == pytest.approx(270.0)  # blowing east = coming from the west
+
+
+@pytest.mark.skipif(os.environ.get("DRONELAB_SITL") != "1", reason="real SITL flight: set DRONELAB_SITL=1")
+@pytest.mark.skipif(not launch.is_built(), reason="ArduCopter SITL not built (scripts/sitl_setup.sh)")
+def test_the_same_survey_on_real_ardupilot_covers_the_field():
+    from backend.sitl.plan_flight import compare
+
+    res = compare("orchard", alt_m=15.0, speedup=4.0, say=lambda _t: None)
+    dl, ap = res["dronelab"], res["ardupilot"]
+    assert dl["coverage_pct"] == 100.0
+    assert ap["coverage_pct"] >= 95.0 and len(ap["photos_xy"]) >= 0.7 * dl["photos"]
+    assert ap["landing_error_m"] < 2.0 and ap["flight_time_s"] < 3 * dl["flight_time_s"]

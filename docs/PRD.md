@@ -218,7 +218,10 @@ Steps 1–4 approved and done (2026-11-22; for step 3 the user installed 3 GStre
 
 ### After Phase 5 (approved by the user 2026-11-22)
 Showcase (public repo, CI that flies ArduPilot, README), fault-injection lab on ArduPilot SITL, then an AI flight-log
-doctor (local Gemma explains ArduPilot logs, offline).
+doctor (local Gemma explains ArduPilot logs, offline). Then (2026-11-22) lidar sense-and-avoid, a LiPo battery and
+the Drone Builder; then (2026-11-22) a farm site with survey missions (also flown on ArduPilot SITL), vision-based
+precision landing (a rendered down camera, numpy only, no OpenCV) and the AI mission planner (local Gemma writes a
+task list from names on the map; code routes and safety-checks it; the user presses Fly).
 
 ### Roadmap (do NOT install or scaffold)
 PX4 SITL + Gazebo + MAVSDK, ROS 2, camera/vision, RL, NVIDIA Warp acceleration.

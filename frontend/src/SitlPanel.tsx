@@ -107,6 +107,15 @@ export default function SitlBar({ a, offline, onLearn, onOpenLog }: { a: SitlSta
           {a.log.length > 0 && <span className="keys" title="The autopilot's own messages (STATUSTEXT), newest last">autopilot: {a.log.slice(-3).join(' · ')}</span>}
         </div>
       )}
+      {a?.plan_result && (
+        <p className="small sitl-plan">
+          🧭 Flight plan on ArduPilot: {a.plan_result.running ? 'flying…' : <>
+            {a.plan_result.flight_time_s?.toFixed(0)} s
+            {a.plan_result.coverage_pct !== null && <> · {a.plan_result.coverage_pct} % of the field covered with {a.plan_result.photos_taken} photos (orange)</>}
+            {a.plan_result.landing_error_m !== undefined && <> · landed {a.plan_result.landing_error_m.toFixed(2)} m from {a.plan_result.land_place} (GPS landing)</>}
+          </>}
+        </p>
+      )}
       {a?.fault_result && <FaultCard r={a.fault_result} onOpenLog={onOpenLog} />}
       {a?.compare && <Compare c={a.compare} />}
     </div>

@@ -9,7 +9,8 @@ export type Quat = [number, number, number, number]; // [w, x, y, z], body -> wo
 export interface SimState {
   type: 'state';
   t_s: number;
-  mode: 'idle' | 'takeoff' | 'hover' | 'land' | 'mission';
+  mode: 'idle' | 'takeoff' | 'hover' | 'land' | 'mission' | 'precland';
+  time_scale: number; // ⏩ 1 = real time; 2, 4, 8 = faster
   paused: boolean;
   armed: boolean;
   on_ground: boolean;
@@ -37,6 +38,81 @@ export interface SimState {
   sitl: SitlStatus | null; // the 🛰 ArduPilot panel (real ArduCopter SITL), null until it's used
   battery: BatteryStatus | null; // null = unlimited power (battery off)
   lidar: LidarStatus | null; // 📡 the lidar's latest scan (+ its map when it changed), null when off
+  survey: SurveyStatus | null; // 🌾 a flight plan with a survey camera is flying
+  camera: CameraStatus | null; // 📷 down camera (on demand, or while precision landing)
+  no_fly: string | null; // name of the no-fly zone the drone is in right now
+}
+
+/** A photo: where it was taken (x, y), from what height, and the survey line's direction (rad). */
+export type Photo = [number, number, number, number];
+
+export interface SurveyStatus {
+  photos_taken: number;
+  on_line: boolean; // the camera is triggering (flying a survey line)
+  photos?: Photo[]; // only sent when a new photo was taken
+}
+
+/** The down camera's picture: grey-scale, w × h, base64 bytes (one per pixel); null = keep the last one. */
+export interface CameraStatus {
+  landing: boolean;
+  image: string | null;
+  w: number;
+  h: number;
+  detection: { u: number; v: number; pixels: number; box: [number, number, number, number] } | null;
+  mode?: 'vision' | 'gps';
+  state?: string;
+  sightings?: number;
+  seen?: boolean;
+}
+
+export interface SiteBox { name: string; x_min: number; x_max: number; y_min: number; y_max: number; height_m: number; why?: string }
+/** 🌾 The farm map shared by surveys, the mission planner and precision landing. */
+export interface Site {
+  title: string;
+  fields: { name: string; polygon: [number, number][]; crop: string }[];
+  buildings: SiteBox[];
+  no_fly: SiteBox[];
+  pads: { name: string; x_m: number; y_m: number; size_m: number }[];
+  places: { name: string; x_m: number; y_m: number }[];
+  geofence_radius_m: number;
+  ceiling_m: number;
+}
+
+export interface PlanTask { type: 'survey' | 'goto' | 'hover' | 'land'; field?: string; place?: string; seconds?: number; precision?: boolean }
+export interface PlanSpec { tasks: PlanTask[]; altitude_m: number; speed_m_s: number; side_overlap_pct: number; front_overlap_pct?: number }
+export interface PlanCheck { id: string; label: string; status: 'pass' | 'warn' | 'fail'; detail: string }
+export interface SurveyInfo {
+  field: string;
+  polygon: [number, number][];
+  lines: [[number, number], [number, number]][];
+  line_spacing_m: number;
+  photo_spacing_m: number;
+  footprint_m: [number, number];
+  gsd_cm: number;
+  photos_estimate: number;
+}
+/** A compiled flight plan: route + safety checks (from the server; it re-checks before flying). */
+export interface FlightPlan {
+  ok: boolean;
+  spec: PlanSpec;
+  waypoints: [number, number][];
+  labels: string[];
+  route: [number, number][];
+  land: { place: string; x_m: number; y_m: number; precision: boolean };
+  surveys: SurveyInfo[];
+  checks: PlanCheck[];
+  estimate: { distance_m: number; time_s: number; energy_wh: number; battery_used_pct: number; battery_left_pct: number; photos: number };
+}
+export interface AiPlanReply {
+  ok: boolean;
+  error?: string;
+  raw?: string;
+  spec?: PlanSpec;
+  plan?: FlightPlan;
+  ai?: { understood: string; assumptions: string[]; not_on_map: string[]; left_out: string[] };
+  unverified_numbers?: string[];
+  model?: string;
+  duration_s?: number;
 }
 
 /** A 360° 2D lidar scan at the drone's height, and the occupancy map it has built. */
@@ -108,6 +184,7 @@ export interface SitlStatus {
   speedup: number;
   compare: { distance_m: number; ardupilot: StepRun; dronelab: StepRun } | null;
   fault_result: FaultResult | null; // the last fault-injection run
+  plan_result: { running: boolean; coverage_pct: number | null; photos_taken?: number; photos: Photo[]; flight_time_s?: number; landing_error_m?: number; land_place?: string } | null;
   truth_m?: Vec3; // where the simulator says it REALLY is (pos_m is what ArduPilot's EKF believes)
   mode?: string; // ArduCopter flight mode: STABILIZE, GUIDED, AUTO, RTL, LAND...
   armed?: boolean;
@@ -188,6 +265,9 @@ export interface Course {
   safety_zone_m: number; // drone radius + safety margin: A* keeps the drone's centre outside this
   route: [number, number][] | null; // planned route of the current mission (null = none yet)
   planner: string | null;
+  site?: Site; // 🌾 the farm (fields, no-fly zones, pads...)
+  plan?: FlightPlan | null; // the flight plan being flown on the farm
+  footprint_per_m?: [number, number]; // photo footprint (across, along) per metre of height
 }
 
 export interface Derived {
@@ -326,6 +406,21 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
+/** POST JSON; on an error status, throw the server's plain-English `detail`. */
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!resp.ok) {
+    let detail = `HTTP ${resp.status}`;
+    try {
+      detail = (await resp.json()).detail ?? detail;
+    } catch {
+      /* not JSON */
+    }
+    throw new Error(detail);
+  }
+  return resp.json() as Promise<T>;
+}
+
 export const api = {
   health: () => getJson<Health>('/api/health'),
   presets: () => getJson<PresetsResponse>('/api/presets'),
@@ -333,6 +428,9 @@ export const api = {
   sitlFaults: () => getJson<{ faults: FaultInfo[] }>('/api/sitl/faults'),
   raceTracks: () => getJson<{ tracks: Record<string, { title: string; tip: string; rings: number; best_s: number | null }> }>('/api/race/tracks'),
   learn: (slug: string) => getJson<{ markdown: string }>(`/api/learn/${slug}`),
+  site: () => getJson<Site>('/api/site'),
+  compilePlan: (spec: PlanSpec, battery?: { cells: number; capacity_mah: number }) => postJson<FlightPlan>('/api/plan/compile', { spec, battery }),
+  aiPlan: (request: string, battery?: { cells: number; capacity_mah: number }) => postJson<AiPlanReply>('/api/ai/plan', { request, battery }),
   validate: (config: DroneConfig) =>
     getJson<{ valid: boolean; problems: string[]; derived: Derived | null }>('/api/config/validate', {
       method: 'POST',

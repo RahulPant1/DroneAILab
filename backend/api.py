@@ -28,6 +28,11 @@
   POST /api/logs/{id}/explain  -> {question?} -> local-LLM debrief (summary only, numbers checked)
   GET  /api/sitl/faults       -> fault-injection scenarios for the ArduPilot panel ({"cmd": "sitl", "action": "fault", "fault": id})
   POST /api/missions/run       -> {mission: {waypoints, obstacles, cruise_alt_m, cruise_speed_m_s}, planner, wind_speed_m_s, seed}
+  GET  /api/site               -> 🌾 the farm map (fields, buildings, no-fly zones, pads, places, geofence)
+  POST /api/plan/compile       -> {spec: {tasks, altitude_m, speed_m_s, side_overlap_pct}, battery?} -> route + safety checks
+  POST /api/ai/plan            -> {request: "survey the north field...", battery?} -> local-LLM task list, compiled + checked
+                               WS {"cmd": "plan", "spec": {...}} flies it (re-checked; refused if any check FAILs);
+                               WS {"cmd": "precland", "mode": "vision"|"gps"}, {"cmd": "camera", "enabled"}, {"cmd": "speed", "factor"}
 
   POST /api/assistant/ask      -> {question, context: [run refs], history} -> grounded answer
   POST /api/assistant/suggest  -> {context: [run refs], goal} -> validated suggestion (never auto-run)
@@ -55,6 +60,10 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.staticfiles import StaticFiles
 
 from .ai import assistant as ai_assistant
+from .ai.mission_planner import plan_from_text
+from .autonomy.plan import PlanError, compile_plan
+from .autonomy.site import FARM
+from .sim.battery import BatteryConfig
 from .autonomy.mission import PLANNERS, SCENARIOS, MissionError, mission_from_dict, run_mission
 from .sim.environment import EnvConfig
 from .ai.ollama_client import AIError, AIOffline, OllamaClient
@@ -337,6 +346,40 @@ def run_custom_mission(body: dict) -> dict:
         raise HTTPException(400, str(exc)) from None
 
 
+# ---- 🌾 Farm: flight plans and the AI mission planner ----
+
+
+def _battery_from(body: dict) -> BatteryConfig | None:
+    b = body.get("battery")
+    if not isinstance(b, dict):
+        return None
+    try:
+        return BatteryConfig(cells=int(b.get("cells", 3)), capacity_mah=float(b.get("capacity_mah", 3000)))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "battery needs numbers: cells, capacity_mah.") from None
+
+
+@app.get("/api/site")
+def site() -> dict:
+    return FARM.to_dict()
+
+
+@app.post("/api/plan/compile")
+def plan_compile(body: dict) -> dict:
+    """Check a task list without flying it (what the 🧭 Mission planner shows before you press Fly)."""
+    try:
+        return compile_plan(body.get("spec") or {}, FARM, battery=_battery_from(body)).to_dict()
+    except PlanError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@app.post("/api/ai/plan")
+async def ai_plan(body: dict) -> dict:
+    """Plain English -> task list (local LLM) -> compiled plan + safety checks. Never flies anything itself."""
+    battery = _battery_from(body)
+    return await _with_ai(lambda: plan_from_text(get_ai_client(), str(body.get("request") or ""), FARM, battery))
+
+
 # ---- Assistant (Phase 3) ----
 
 
@@ -429,7 +472,7 @@ def handle_message(session: MissionSim, msg) -> dict | None:
             return {"type": "config", "config": session.config.to_dict(), "course": session.course_info(),
                     "race": session.race_info(), "message": "Reset."}
         text = session.command(cmd, **args)
-        if cmd in ("course", "mission", "race"):
+        if cmd in ("course", "mission", "race", "plan"):
             return {"type": "course", "course": session.course_info(), "race": session.race_info(), "message": text}
         return {"type": "info", "message": text} if text else None
     except (ConfigError, ValueError, TypeError, KeyError) as exc:

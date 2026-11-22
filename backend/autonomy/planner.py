@@ -50,15 +50,17 @@ def _segment_free(boxes: list[Box], a: Point, b: Point, keep_out_m: float, step_
     return all(_free(boxes, a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n, keep_out_m) for i in range(n + 1))
 
 
-def astar_leg(start: Point, goal: Point, boxes: list[Box], cruise_alt_m: float, info: PlanInfo) -> list[Point]:
-    """Shortest safe route between two points on a grid, then shortened with straight-line shortcuts."""
+def astar_leg(start: Point, goal: Point, boxes: list[Box], cruise_alt_m: float, info: PlanInfo,
+              resolution_m: float = GRID_RESOLUTION_M) -> list[Point]:
+    """Shortest safe route between two points on a grid, then shortened with straight-line shortcuts.
+    A coarser grid (resolution_m) lets it plan across a whole farm."""
     tall = [b for b in boxes if b.blocks_altitude(cruise_alt_m)]
     keep_out = DRONE_RADIUS_M + SAFETY_MARGIN_M
     for name, p in (("start", start), ("goal", goal)):
         if not _free(tall, *p, keep_out - 1e-9):
             raise PlanningError(f"The {name} point ({p[0]:.1f}, {p[1]:.1f}) is too close to an obstacle (needs {keep_out:.1f} m of space).")
 
-    res = GRID_RESOLUTION_M
+    res = resolution_m
     xs = [start[0], goal[0]] + [v for b in tall for v in (b.x_min, b.x_max)]
     ys = [start[1], goal[1]] + [v for b in tall for v in (b.y_min, b.y_max)]
     x0, y0 = min(xs) - MAP_BORDER_M, min(ys) - MAP_BORDER_M
@@ -124,7 +126,8 @@ def astar_leg(start: Point, goal: Point, boxes: list[Box], cruise_alt_m: float, 
     return short
 
 
-def plan_route(waypoints: list[Point], boxes: list[Box], planner: str, cruise_alt_m: float) -> tuple[list[Point], PlanInfo]:
+def plan_route(waypoints: list[Point], boxes: list[Box], planner: str, cruise_alt_m: float,
+               resolution_m: float = GRID_RESOLUTION_M) -> tuple[list[Point], PlanInfo]:
     """The full planned route through all waypoints (for 'potential', just the waypoints themselves)."""
     info = PlanInfo(planner=planner)
     if planner in ("straight", "potential"):
@@ -134,7 +137,7 @@ def plan_route(waypoints: list[Point], boxes: list[Box], planner: str, cruise_al
     started = time.perf_counter()
     route = [waypoints[0]]
     for a, b in zip(waypoints, waypoints[1:]):
-        route += astar_leg(a, b, boxes, cruise_alt_m, info)[1:]
+        route += astar_leg(a, b, boxes, cruise_alt_m, info, resolution_m)[1:]
     info.planning_time_ms = (time.perf_counter() - started) * 1000.0
-    info.grid_resolution_m = GRID_RESOLUTION_M
+    info.grid_resolution_m = resolution_m
     return route, info

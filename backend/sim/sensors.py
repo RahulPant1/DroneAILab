@@ -34,6 +34,8 @@ ACCEL_NOISE_M_S2 = 0.3
 BARO_NOISE_M = 0.15
 COMPASS_NOISE_RAD = math.radians(2.0)
 GPS_NOISE_M = 0.3
+GPS_DRIFT_TAU_S = 60.0  # how slowly the GPS error wanders (a real receiver's error changes over a minute or so)
+GPS_DRIFT_SMOOTH_S = 10.0  # ...and it changes smoothly, not in jumps
 
 SENSOR_LIMITS = {
     "noise_scale": (0.0, 5.0),
@@ -42,6 +44,7 @@ SENSOR_LIMITS = {
     "gps_trust": (0.01, 1.0),
     "gps_noise_scale": (0.0, 5.0),
     "tilt_correction": (0.0, 5.0),
+    "gps_drift_m": (0.0, 5.0),
 }
 
 
@@ -58,6 +61,9 @@ class SensorConfig:
     # Estimator: how strongly the accelerometer corrects the tilt (1/s). Kept gentle on purpose: while a
     # multirotor accelerates, its accelerometer mostly feels its own thrust and "lies" about which way is down.
     tilt_correction: float = 0.2
+    # Slowly wandering GPS error (1 standard deviation, m), on top of the jitter. Real consumer GPS is often 1-2 m
+    # off for a minute at a time (atmosphere, satellite geometry, reflections); averaging can't remove it. 0 = off.
+    gps_drift_m: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -101,6 +107,11 @@ class Sensors:
         self.readings = Readings()
         self.step_count = 0
         self.gps_ok = True  # False = GPS outage: no fixes arrive (live view toggle)
+        # GPS drift: a random walk that is pulled back toward 0 (time constant GPS_DRIFT_TAU_S), so it stays around
+        # gps_drift_m in size, then smoothed (GPS_DRIFT_SMOOTH_S) so it wanders gently instead of jumping.
+        self.gps_drift_sigma = cfg.gps_drift_m * cfg.noise_scale
+        self._gps_walk_m = self.gps_drift_sigma * rng.standard_normal(2) if self.gps_drift_sigma > 0 else np.zeros(2)
+        self.gps_bias_m = self._gps_walk_m.copy()
 
     def sample(self, truth: State, accel_world_m_s2: np.ndarray) -> Readings:
         """Take whichever readings are due this physics step (each sensor has its own rate)."""
@@ -124,5 +135,10 @@ class Sensors:
             yaw = quat_to_euler(truth.quat)[2]
             r.compass_rad = math.remainder(yaw + self.compass_sigma * self.rng.standard_normal(), 2 * math.pi)
         if r.new_gps:
-            r.gps_xy_m = truth.pos_m[:2] + self.gps_sigma * self.rng.standard_normal(2)
+            if self.gps_drift_sigma > 0:
+                dt = GPS_EVERY_N_STEPS * 0.002
+                keep = math.exp(-dt / GPS_DRIFT_TAU_S)
+                self._gps_walk_m = keep * self._gps_walk_m + self.gps_drift_sigma * math.sqrt(1 - keep * keep) * self.rng.standard_normal(2)
+                self.gps_bias_m += (self._gps_walk_m - self.gps_bias_m) * dt / GPS_DRIFT_SMOOTH_S
+            r.gps_xy_m = truth.pos_m[:2] + self.gps_bias_m + self.gps_sigma * self.rng.standard_normal(2)
         return r

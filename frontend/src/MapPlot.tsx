@@ -7,7 +7,9 @@ import type { MapExtra, PlotDef } from './lab';
 const RUN_COLORS = ['#4cc9f0', '#ff6bd6'];
 
 export default function MapPlot({ plot, runs }: { plot: PlotDef; runs: ChartRun[] }) {
-  const extra = plot.extra as MapExtra;
+  const raw = plot.extra as MapExtra;
+  const extra: MapExtra = { ...raw, obstacles: raw.obstacles ?? [], waypoints: raw.waypoints ?? [], planned_route: raw.planned_route ?? [] };
+  const from = extra.first_index ?? 0;
   const xCh = plot.series[0]?.channel ?? 'x_m';
   const yCh = plot.series[1]?.channel ?? 'y_m';
 
@@ -17,11 +19,18 @@ export default function MapPlot({ plot, runs }: { plot: PlotDef; runs: ChartRun[
         const xs = r.result.telemetry[xCh] ?? [];
         const ys = r.result.telemetry[yCh] ?? [];
         const pts: [number, number][] = [];
-        for (let i = 0; i < xs.length; i += 2) pts.push([xs[i], ys[i]]);
+        for (let i = from; i < xs.length; i += 2) pts.push([xs[i], ys[i]]);
         return pts;
       }),
-    [runs, xCh, yCh],
+    [runs, xCh, yCh, from],
   );
+  const estPath = useMemo(() => {
+    if (!extra.estimate) return null;
+    const [ex, ey] = extra.estimate;
+    const pts: string[] = [];
+    for (let i = from; i < ex.length; i += 2) pts.push(`${ex[i]},${-ey[i]}`);
+    return pts.join(' ');
+  }, [extra.estimate, from]);
 
   // Bounds that fit everything, plus a 1 m border.
   const b = useMemo(() => {
@@ -30,12 +39,18 @@ export default function MapPlot({ plot, runs }: { plot: PlotDef; runs: ChartRun[
     extra.planned_route.forEach(([x, y]) => { xs.push(x); ys.push(y); });
     extra.waypoints.forEach(([x, y]) => { xs.push(x); ys.push(y); });
     extra.obstacles.forEach((o) => { xs.push(o.x_min, o.x_max); ys.push(o.y_min, o.y_max); });
+    (extra.fields ?? []).flat().forEach(([x, y]) => { xs.push(x); ys.push(y); });
+    if (extra.window) {
+      const [x0, x1, y0, y1] = extra.window;
+      return { x0, x1, y0, y1, w: x1 - x0, h: y1 - y0 };
+    }
     const x0 = Math.min(...xs) - 1, x1 = Math.max(...xs) + 1, y0 = Math.min(...ys) - 1, y1 = Math.max(...ys) + 1;
     return { x0, x1, y0, y1, w: x1 - x0, h: y1 - y0 };
   }, [paths, extra]);
 
   const span = Math.max(b.w, b.h);
-  const gridStep = span > 30 ? 5 : span > 14 ? 2 : 1;
+  const gridStep = span > 80 ? 10 : span > 30 ? 5 : span > 14 ? 2 : 1;
+  const per = extra.footprint_per_m ?? [1.4, 1.05];
   const font = span * 0.035;
   const pt = (x: number, y: number) => `${x},${-y}`; // SVG y grows downward, so flip north up
   const gridLines: ReactElement[] = [];
@@ -54,6 +69,28 @@ export default function MapPlot({ plot, runs }: { plot: PlotDef; runs: ChartRun[
       <svg className="map" viewBox={`${b.x0} ${-b.y1} ${b.w} ${b.h}`} preserveAspectRatio="xMidYMid meet" role="img"
         aria-label="Top-down map of the mission">
         {gridLines}
+        {(extra.fields ?? []).map((poly, i) => (
+          <polygon key={`f${i}`} points={poly.map(([x, y]) => pt(x, y)).join(' ')} className="map-field" />
+        ))}
+        {(extra.photos ?? []).map(([x, y, alt, a], i) => {
+          const along = per[1] * alt, across = per[0] * alt;
+          return (
+            <rect key={`p${i}`} x={x - along / 2} y={-y - across / 2} width={along} height={across} className="map-photo"
+              transform={`rotate(${(-a * 180) / Math.PI} ${x} ${-y})`} />
+          );
+        })}
+        {(extra.gaps ?? []).map(([x, y], i) => <circle key={`g${i}`} cx={x} cy={-y} r={Math.max(0.25, span * 0.004)} className="map-gap" />)}
+        {(extra.no_fly ?? []).map((o, i) => (
+          <rect key={`n${i}`} x={o.x_min} y={-o.y_max} width={o.x_max - o.x_min} height={o.y_max - o.y_min} className="map-nofly" />
+        ))}
+        {(extra.pads ?? []).map(([x, y, size], i) => (
+          <g key={`pad${i}`}>
+            <rect x={x - size * 0.75} y={-y - size * 0.75} width={size * 1.5} height={size * 1.5} className="map-pad" />
+            <rect x={x - size * 0.375} y={-y - size * 0.375} width={size * 0.75} height={size * 0.75} className="map-marker"
+              strokeWidth={size * 0.25} />
+          </g>
+        ))}
+        {estPath && <polyline points={estPath} className="map-flown map-estimate" />}
         {extra.obstacles.map((o, i) => (
           <g key={i}>
             <rect x={o.x_min - z} y={-(o.y_max + z)} width={o.x_max - o.x_min + 2 * z} height={o.y_max - o.y_min + 2 * z}
@@ -101,8 +138,11 @@ export default function MapPlot({ plot, runs }: { plot: PlotDef; runs: ChartRun[
         {runs.map((r, i) => (
           <span key={i}><i className="sw" style={{ background: RUN_COLORS[i % 2] }} /> {runs.length > 1 ? `${r.name}: flown` : 'flown path'}</span>
         ))}
-        <span><i className="sw obstacle" /> obstacle</span>
-        <span><i className="sw zone" /> keep-out zone</span>
+        {extra.estimate && <span><i className="sw est" /> where it thought it was</span>}
+        {extra.photos && <span><i className="sw photo" /> photo footprints</span>}
+        {extra.gaps && extra.gaps.length > 0 && <span className="map-gap-key">● gap</span>}
+        {extra.obstacles.length > 0 && <span><i className="sw obstacle" /> obstacle</span>}
+        {extra.obstacles.length > 0 && <span><i className="sw zone" /> keep-out zone</span>}
         <span className="map-crash">✕</span> crash <span className="map-stuck">!</span> stuck
         <span className="muted">grid: {gridStep} m · north ↑ · east →</span>
       </div>

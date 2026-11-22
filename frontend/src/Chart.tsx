@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import uPlot, { type AlignedData, type Options } from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { PlotDef, RunResult } from './lab';
+import ImagesPlot from './ImagesPlot';
 import MapPlot from './MapPlot';
 
 const COLORS = ['#4cc9f0', '#ffd166', '#ef476f', '#06d6a0', '#b388ff', '#ff9f1c'];
@@ -22,6 +23,7 @@ function seriesData(run: RunResult, plot: PlotDef): (number | null)[][] {
 }
 
 export default function Chart(props: { plot: PlotDef; runs: ChartRun[]; height?: number }) {
+  if (props.plot.kind === 'images') return <ImagesPlot plot={props.plot} />;
   return props.plot.kind === 'map' ? <MapPlot plot={props.plot} runs={props.runs} /> : <TimeChart {...props} />;
 }
 

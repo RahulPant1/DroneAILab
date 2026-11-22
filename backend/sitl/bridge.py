@@ -85,6 +85,7 @@ class SitlBridge:
         self.log: deque[str] = deque(maxlen=8)  # recent autopilot messages, newest last
         self.compare: dict | None = None
         self.fault_result: dict | None = None  # the last fault-injection run (for the panel's report card)
+        self.plan_result: dict | None = None  # the last 🧭 flight plan flown on ArduPilot (photos, coverage, landing)
         self.speedup = 1.0
 
     # --- life cycle ------------------------------------------------------------------------------
@@ -279,6 +280,36 @@ class SitlBridge:
 
         return self._run("mission", work)
 
+    def fly_plan(self, spec: dict) -> str:
+        """Fly a 🧭 Mission-planner plan (re-checked here) on ArduPilot, in AUTO, with the survey camera."""
+        from backend.autonomy.plan import PlanError, compile_plan
+        from backend.autonomy.site import FARM
+
+        from .plan_flight import fly_plan
+
+        try:
+            plan = compile_plan(spec, FARM)
+        except PlanError as exc:
+            raise ValueError(str(exc)) from None
+        fails = [f"{c['label']}: {c['detail']}" for c in plan.checks if c["status"] == "fail"]
+        if fails:
+            raise ValueError("Not flying this plan on ArduPilot. " + " ".join(fails))
+
+        def work(f: Flight) -> None:
+            with self.lock:
+                self.plan_result = {"running": True, "photos": [], "coverage_pct": None}
+            res = fly_plan(f, plan, say=self._say, speedup=self.speedup)
+            with self.lock:
+                self.plan_result = {"running": False, "coverage_pct": res["coverage_pct"], "photos_taken": len(res["photos"]),
+                                    "photos": [[p["x_m"], p["y_m"], p["alt_m"], round(p["angle_rad"], 4)] for p in res["photos"]],
+                                    "flight_time_s": res["flight_time_s"], "landing_error_m": res["landing_error_m"],
+                                    "land_place": plan.land["place"]}
+            cov = f", {res['coverage_pct']} % of the field covered with {len(res['photos'])} photos" if res["coverage_pct"] is not None else ""
+            self._say(f"Plan flown on ArduPilot in {res['flight_time_s']:.0f} s{cov}; landed "
+                      f"{res['landing_error_m']:.2f} m from {plan.land['place']} (GPS landing).")
+
+        return self._run("flight plan", work)
+
     def set_mode(self, mode: str) -> str:
         if mode not in ("RTL", "LAND"):
             raise ValueError("mode must be RTL or LAND")
@@ -343,7 +374,7 @@ class SitlBridge:
                 return None
             out: dict = {"state": self.state, "message": self.message, "action": self.action,
                          "log": list(self.log), "pad_m": list(PAD_OFFSET_M), "compare": self.compare,
-                         "speedup": self.speedup, "fault_result": self.fault_result}
+                         "speedup": self.speedup, "fault_result": self.fault_result, "plan_result": self.plan_result}
             f = self.flight
         if f is None:
             return out
@@ -390,6 +421,8 @@ class SitlBridge:
             return self.set_mode(action.upper())
         if action == "compare":
             return self.run_compare()
+        if action == "plan":
+            return self.fly_plan(args.get("spec") or {})
         if action == "fault":
             return self.run_fault(str(args.get("fault")), float(args.get("speedup", 1.0)))
         raise ValueError(f"Unknown ArduPilot action: {action!r}")

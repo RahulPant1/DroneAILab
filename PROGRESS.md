@@ -472,3 +472,29 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
 - UI: 🛠 Build your own (Studio), 🔋 Battery bar + Telemetry battery panel, 📡 lidar rays + red map in 3D.
 - Tests: +9 battery/builder, +5 lidar, 2 updated for min mass 0.1 kg, phase-4 matrix gains hidden_walls + lidar.
   226 passed.
+
+## 🌾 Farm surveys, 🎯 precision landing, 🧭 AI mission planner (2026-11-22/23, user-approved: "Take 1 2 and 3")
+- Farm site (`site.py`): 3 convex fields, 3 buildings (9/16/8 m), 2 no-fly zones, pads home + pad B, 3 places, 90 m
+  geofence, 60 m ceiling. Task plans (`plan.py`) compile to waypoints + an A* route (0.5 m grid; the default 0.2 m grid
+  is too small for a 130 m farm) and 6-8 checks. Estimates vs simulated flights: time within ~3-12 %, battery within
+  ~1-7 % (hover power measured with a 3 s simulated hover). Fixes on the way: line spacing first spread lines evenly
+  (10 % overlap really flew at 50 %: no lesson) -> now exact spacing; follower lands at 1.5 m/s above 5 m (was 0.6:
+  25 s from 15 m).
+- Survey numbers (north field, 20 m): 4 lines, 36 photos, 0.7 cm/pixel, 142 s, 100 % covered. Gaps only appear with
+  0 % side overlap in a gusty 6 m/s crosswind + GPS drift (94.8 / 97.6 / 98.8 %); 10 % overlap was already enough.
+- Same survey on ArduCopter 4.7.3 SITL in AUTO: 100 % covered, 34 photos vs 36, 146 s vs 143 s, landed 0.04 m from
+  its pad. Gotcha: 4.7 renamed WPNAV_SPEED (cm/s) to WP_SPD (m/s); set_param timed out until fixed.
+- Precision landing: first version only improved 1.6 m -> 0.86 m. Logging showed the camera target was right to
+  ~0.1 m; the drone wandered because the GPS drift model (first-order Gauss-Markov) jumped ~0.3 m every second. Real
+  GPS error wanders smoothly: added a 10 s smoothing stage. Now, 8 seeds, 1.5 m drift: GPS 1.61 m mean (3.57 worst)
+  vs camera 0.31 m (0.67); gusty 6 m/s: 1.53 vs 0.56 m (1.12 worst). Detection: lone-pixel noise filter (zero false
+  detections on 100 grass frames), edge-touching markers ignored, blind final descent below 2 m (at 1.4 m: no gain).
+- AI planner with the real gemma4 e4b (Ollama, HTTP): first try ignored "from 12 m"/"at 25 m" (kept 20 m) and added
+  a goto to each field before its survey. Prompt now says altitude covers surveys; the compiler also drops a goto to
+  the field right before its survey. After that, 4/4 example requests planned as asked; "school" -> not_on_map (fail),
+  horse paddock -> left_out (warn), 150 m -> altitude fail, three fields at 8 m -> battery fail (79 %). ~2 s per plan
+  once loaded (first load ~50 s).
+- Live: ⏩ time speed-up (1/2/4/8x; 8x survey = ~3 % of a CPU core), photo footprints (sent only when a new photo is
+  taken), down-camera picture-in-picture at 5 Hz (12 KB base64 per picture), no-fly warnings when flown by hand.
+- Tests: +12 survey/plan, +5 precision landing, +6 mission planner (fake Ollama), +1 wind conversion, +1 opt-in real
+  ArduPilot survey; phase-2 test updated for experiments 8-9. UI not verified in a browser.

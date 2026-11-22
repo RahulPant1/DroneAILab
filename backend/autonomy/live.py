@@ -23,12 +23,19 @@ from backend.games.race import TRACKS, Race
 
 from .follower import Mission, MissionFollower
 from .lidar import Perception, SenseFollower
+from .plan import CompiledPlan, PlanError, PlanFollower, compile_plan, make_lander
+from .precland import PrecisionLander, image_b64, render
+from .site import FARM
+from .survey import CAMERA
 from .formation import SHAPE_NAMES, Formation, LeaderInfo
 from .mission import PLANNERS, SCENARIOS, MissionError, scenario_mission
 from .planner import PlanningError, plan_route
 from .world import DRONE_RADIUS_M, SAFETY_MARGIN_M, clearance_m
 
 MIN_SPEED_M_S, MAX_SPEED_M_S = 0.3, 3.0
+FARM_ID = "farm"  # the 🌾 farm: fields, buildings, no-fly zones, landing pads (site.py)
+CAMERA_SEND_EVERY_S = 0.2  # down-camera pictures go to the UI 5 times a second (sim time)
+PRECLAND_MAX_DIST_M = 12.0  # 🎯 precision landing needs a pad within this distance
 
 
 class MissionSim(RealtimeSim):
@@ -42,10 +49,19 @@ class MissionSim(RealtimeSim):
         self.follower: MissionFollower | None = None
         self.race: Race | None = None  # rings race (a game); never loaded together with a course
         self._race_prev_pos = None
+        self.follower_done: MissionFollower | None = None
         self.formation = Formation()  # wingmen that follow your drone (0 = off); kept across resets
         self.lidar_on = False  # 📡 show the lidar + its map while you fly (a lidar mission always has one)
         self.lidar_view: Perception | None = None
         self._lidar_sent: tuple[int, int] | None = None  # (which map, version) the UI already has
+        self.plan: CompiledPlan | None = None  # 🌾 the flight plan being flown / last flown on the farm
+        self.prec_lander: PrecisionLander | None = None  # 🎯 precision landing started from the button
+        self.camera_on = False  # 📷 show the down camera's picture
+        self._camera_img = None
+        self._camera_next_s = 0.0
+        self._camera_sent_s = -1.0
+        self._photos_sent = -1
+        self._in_no_fly: str | None = None
         super().__init__(config, seed)
 
     # ---- course ----
@@ -68,6 +84,10 @@ class MissionSim(RealtimeSim):
         if self.race:
             self.race.restart()  # Reset = try the race again
         self._race_prev_pos = None
+        self.prec_lander = None
+        self._camera_img, self._camera_next_s, self._camera_sent_s = None, 0.0, -1.0
+        self._photos_sent = -1
+        self._in_no_fly = None
         super().reset(config, seed)
         self.lidar_view = Perception(self.seed) if self.lidar_on else None  # Reset = an empty map
         self._spawn_formation()
@@ -120,14 +140,21 @@ class MissionSim(RealtimeSim):
 
     def load_course(self, scenario_id: str | None) -> str:
         """Load a built-in course (or None for an empty world) and put the drone on its start point."""
-        if scenario_id is not None and scenario_id not in SCENARIOS:
-            raise ValueError(f"Unknown course '{scenario_id}'. Choose one of: {', '.join(SCENARIOS)}.")
+        if scenario_id is not None and scenario_id not in SCENARIOS and scenario_id != FARM_ID:
+            raise ValueError(f"Unknown course '{scenario_id}'. Choose one of: {', '.join([*SCENARIOS, FARM_ID])}.")
         self.course_id = scenario_id
-        self.mission = scenario_mission(scenario_id) if scenario_id else None
+        self.plan = None
+        if scenario_id == FARM_ID:
+            self.mission = Mission([(0.0, 0.0)], [b.box for b in FARM.buildings], 20.0, 3.0)
+        else:
+            self.mission = scenario_mission(scenario_id) if scenario_id else None
         self.race = None  # a course replaces a race
         self.reset()
         if not scenario_id:
             return "Free flight: no obstacles."
+        if scenario_id == FARM_ID:
+            return (f"🌾 {FARM.title}: 3 fields, buildings, 2 no-fly zones (red) and 2 landing pads. Plan a flight in the "
+                    "🧭 Mission planner, or fly it yourself.")
         return f"Loaded '{SCENARIOS[scenario_id]['title']}'. Fly it yourself, or press Fly mission."
 
     def load_race(self, track_id: str | None) -> str:
@@ -160,6 +187,20 @@ class MissionSim(RealtimeSim):
         if not self.mission:
             return None
         m = self.mission
+        if self.course_id == FARM_ID:
+            p = self.plan
+            return {
+                "id": FARM_ID, "title": FARM.title,
+                "waypoints": [list(w) for w in (p.waypoints if p else m.waypoints)],
+                "obstacles": [b.to_dict() for b in m.obstacles],
+                "cruise_alt_m": p.spec["altitude_m"] if p else m.cruise_alt_m,
+                "safety_zone_m": DRONE_RADIUS_M + SAFETY_MARGIN_M,
+                "route": [[round(a, 3), round(b, 3)] for a, b in p.route] if p else None,
+                "planner": "plan" if p else None,
+                "site": FARM.to_dict(),
+                "plan": p.to_dict() if p else None,
+                "footprint_per_m": [CAMERA.footprint_m(1.0)[0], CAMERA.footprint_m(1.0)[1]],
+            }
         return {
             "id": self.course_id,
             "title": SCENARIOS[self.course_id]["title"],
@@ -171,11 +212,97 @@ class MissionSim(RealtimeSim):
             "planner": self.planner,
         }
 
+    # ---- 🌾 farm: flight plans, precision landing, down camera ----
+
+    def start_plan(self, spec: dict) -> str:
+        """Fly a task plan on the farm (from the 🧭 Mission planner). Re-checked here: a plan with a FAIL is refused."""
+        if self.course_id != FARM_ID:
+            self.load_course(FARM_ID)
+        try:
+            plan = compile_plan(spec, FARM, self.config, self.battery_cfg)
+        except PlanError as exc:
+            raise ValueError(str(exc)) from None
+        fails = [f"{c['label']}: {c['detail']}" for c in plan.checks if c["status"] == "fail"]
+        if fails:
+            raise ValueError("Not flying this plan. " + " ".join(fails))
+        self.reset()
+        self.plan = plan
+        self.mission = Mission(list(plan.waypoints), list(plan.buildings), plan.spec["altitude_m"], plan.spec["speed_m_s"])
+        self.route, self.planner = list(plan.route), "plan"
+        self.follower = PlanFollower(plan, make_lander(plan, FARM, self.seed))
+        self._events_seen = 0
+        self.pilot.mode = "mission"
+        est = plan.estimate
+        self.pilot.message = f"Flying the plan: {len(plan.waypoints) - 1} waypoints, about {est['time_s'] / 60:.1f} min."
+        return (f"Plan started: {est['distance_m']:.0f} m, about {est['time_s'] / 60:.1f} min, ~{est['battery_used_pct']:.0f} % "
+                f"of the battery" + (f", {est['photos']} photos" if est["photos"] else "") + "."
+                + (" Try ⏩ to speed up time." if self.time_scale == 1 else ""))
+
+    def _pads(self) -> list[tuple[float, float, float]]:
+        return [(p.x_m, p.y_m, p.size_m) for p in FARM.pads] if self.course_id == FARM_ID else []
+
+    def start_precland(self, mode: str = "vision") -> str:
+        """🎯 Land on the nearest pad (farm only), with the camera or by GPS."""
+        if mode not in ("vision", "gps"):
+            raise ValueError("Precision landing mode is 'vision' or 'gps'.")
+        if self.course_id != FARM_ID:
+            raise ValueError("Load the 🌾 farm first: it has landing pads with markers.")
+        s, est = self.state, self.sim.estimate
+        if s.on_ground or not self.pilot.sp.armed:
+            raise ValueError("Take off first.")
+        self._take_over()
+        pad = min(FARM.pads, key=lambda p: math.hypot(p.x_m - est.pos_m[0], p.y_m - est.pos_m[1]))
+        d = math.hypot(pad.x_m - est.pos_m[0], pad.y_m - est.pos_m[1])
+        if d > PRECLAND_MAX_DIST_M:
+            raise ValueError(f"The nearest pad ({pad.name}) is {d:.0f} m away: fly within {PRECLAND_MAX_DIST_M:.0f} m of it first.")
+        self.prec_lander = PrecisionLander((pad.x_m, pad.y_m, pad.size_m), mode, self.seed, self._pads())
+        self.pilot.mode = "precland"
+        how = "looking for its marker with the down camera" if mode == "vision" else "on its GPS position only"
+        self.pilot.message = f"🎯 Landing on {pad.name}, {how}."
+        return self.pilot.message
+
+    def set_camera(self, enabled: bool) -> str:
+        self.camera_on = bool(enabled)
+        self._camera_img = None
+        return ("📷 Down camera on: what a camera under the drone sees (128 × 96 pixels)." if enabled else "Down camera off.")
+
+    def _no_fly_check(self, s: State) -> None:
+        if self.course_id != FARM_ID:
+            return
+        x, y = float(s.pos_m[0]), float(s.pos_m[1])
+        inside = next((z.name for z in FARM.no_fly if z.box.distance_2d(x, y) == 0.0 and not s.on_ground), None)
+        if inside != self._in_no_fly:
+            if inside:
+                msg = f"⚠ You flew into the no-fly zone '{inside}'. Get out!"
+                self.notices.append(msg)
+                self.pilot.message = msg
+            self._in_no_fly = inside
+
+    def _precland_setpoint(self, s: State) -> Setpoint:
+        lander = self.prec_lander
+        n = len(lander.events)
+        x, y, alt = lander.update(s.time_s, self.sim.estimate, s)
+        for _, _, msg in lander.events[n:]:
+            self.notices.append(msg)
+            self.pilot.message = msg
+        sp = Setpoint(armed=True, alt_m=alt, yaw_rad=self.pilot.sp.yaw_rad, position_control=True, x_m=x, y_m=y)
+        if s.on_ground and alt < 0.2:
+            err = math.hypot(s.pos_m[0] - lander.pad[0], s.pos_m[1] - lander.pad[1])
+            msg = f"🎯 Landed {err:.2f} m from the pad centre ({'camera' if lander.mode == 'vision' else 'GPS only'})."
+            self.notices.append(msg)
+            self.pilot = Pilot()
+            self.pilot.message = msg
+            self.prec_lander = None
+            sp.armed = False
+        return sp
+
     # ---- mission autopilot ----
 
     def start_mission(self, planner: str, cruise_speed_m_s: float | None = None) -> str:
         if not self.mission:
             raise ValueError("Load a course first.")
+        if self.course_id == FARM_ID:
+            raise ValueError("On the farm, plan the flight in the 🧭 Mission planner.")
         if planner not in PLANNERS:
             raise ValueError(f"Planner must be one of: {', '.join(PLANNERS)}.")
         speed = self.mission.cruise_speed_m_s if cruise_speed_m_s is None else float(cruise_speed_m_s)
@@ -200,6 +327,7 @@ class MissionSim(RealtimeSim):
     def _end_mission(self, state: State) -> None:
         """The autopilot is finished: give the controls back."""
         phase = self.follower.phase
+        self.follower_done = self.follower
         self.follower = None
         self.pilot = Pilot()
         if phase == "stuck":
@@ -208,6 +336,13 @@ class MissionSim(RealtimeSim):
             self.pilot.message = "Stuck: the potential field can't find a way. You have the controls."
         elif phase == "crashed":
             self.pilot.message = "Crashed into an obstacle. Press Reset or Fly mission to try again."
+        elif isinstance(self.follower_done, PlanFollower) and self.follower_done.plan.land:
+            land = self.follower_done.plan.land
+            err = math.hypot(state.pos_m[0] - land["x_m"], state.pos_m[1] - land["y_m"])
+            cam = self.follower_done.camera
+            photos = f" {len(cam.photos)} photos taken." if cam else ""
+            self.pilot.message = f"Plan complete. Landed on {land['place']}, {err:.2f} m from its centre.{photos}"
+            self.notices.append(self.pilot.message)
         else:
             self.pilot.message = "Mission complete. Landed at the final waypoint."
 
@@ -251,6 +386,10 @@ class MissionSim(RealtimeSim):
             sp.armed = False
 
     def abort_autopilot(self) -> None:
+        if self.prec_lander is not None:
+            self.prec_lander = None
+            self.pilot.mode = "hover"
+            self.notices.append("🎯 Precision landing aborted by the battery failsafe.")
         if self.follower:
             self._take_over()
             self.notices.append("Mission aborted by the battery failsafe.")
@@ -275,6 +414,12 @@ class MissionSim(RealtimeSim):
             self.lidar_view.update(s.time_s, s, self.sim.estimate, self.mission.obstacles if self.mission else [])
         if self.race:
             self._update_race(s)
+        self._no_fly_check(s)
+        if self.camera_on and s.time_s >= self._camera_next_s:
+            self._camera_next_s = s.time_s + CAMERA_SEND_EVERY_S
+            self._camera_img = render(s, self._pads(), None)
+        if self.prec_lander is not None:
+            return self._precland_setpoint(s)
         if self.follower and self.gps_settle_left_s() > 0:
             self.follower._t_last = s.time_s  # the autopilot's clock starts once it may take off
             return Setpoint(armed=False, position_control=True, x_m=float(s.pos_m[0]), y_m=float(s.pos_m[1]))
@@ -329,6 +474,17 @@ class MissionSim(RealtimeSim):
             return self.start_mission(str(args.get("planner", "astar")), args.get("cruise_speed_m_s"))
         if cmd == "lidar":
             return self.set_lidar(bool(args.get("enabled", False)))
+        if cmd == "plan":
+            return self.start_plan(args.get("spec") or {})
+        if cmd == "precland":
+            return self.start_precland(str(args.get("mode", "vision")))
+        if cmd == "camera":
+            return self.set_camera(bool(args.get("enabled", False)))
+        if self.prec_lander is not None and cmd in ("hover", "land", "target", "takeoff"):
+            self.prec_lander = None
+            if cmd != "takeoff":
+                self.pilot.mode = "hover"
+            self.notices.append("🎯 Precision landing cancelled: you have the controls.")
         if self.follower:
             if cmd == "takeoff":
                 return "A mission is flying. Press Hover here or Land to take over."
@@ -344,6 +500,32 @@ class MissionSim(RealtimeSim):
             if f else None
         )  # fmt: skip
         snap["race"] = self.race.status(self.state.time_s) if self.race else None
+        f_cam = getattr(self.follower, "camera", None)
+        if f_cam is not None:
+            survey = {"photos_taken": len(f_cam.photos), "on_line": f_cam.line is not None}
+            if len(f_cam.photos) != self._photos_sent:  # the footprints only when a new photo was taken
+                survey["photos"] = [[p["x_m"], p["y_m"], p["alt_m"], round(p["angle_rad"], 4)] for p in f_cam.photos]
+                self._photos_sent = len(f_cam.photos)
+            snap["survey"] = survey
+        else:
+            snap["survey"] = None
+        lander = self.prec_lander or getattr(self.follower, "lander", None)
+        if lander is not None and (self.prec_lander is not None or self.follower.phase == "land"):
+            cam = lander.snapshot()
+            if self.state.time_s - self._camera_sent_s < CAMERA_SEND_EVERY_S:
+                cam["image"] = None  # the UI keeps the last picture
+            else:
+                self._camera_sent_s = self.state.time_s
+            snap["camera"] = {**cam, "landing": True}
+        elif self.camera_on and self._camera_img is not None:
+            fresh = self.state.time_s - self._camera_sent_s >= CAMERA_SEND_EVERY_S
+            if fresh:
+                self._camera_sent_s = self.state.time_s
+            snap["camera"] = {"landing": False, "image": image_b64(self._camera_img) if fresh else None,
+                              "w": self._camera_img.shape[1], "h": self._camera_img.shape[0], "detection": None}
+        else:
+            snap["camera"] = None
+        snap["no_fly"] = self._in_no_fly
         snap["formation"] = self.formation.snapshot() if self.formation.count else None
         p = self.perception()
         if p is not None:

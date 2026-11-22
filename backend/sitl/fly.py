@@ -133,6 +133,7 @@ class Flight:
         self.battery_v: float | None = None
         self.acks: dict[int, int] = {}  # command id -> result, from COMMAND_ACK
         self.reached: list[int] = []  # mission item numbers, from MISSION_ITEM_REACHED
+        self.mission_seq = -1  # the mission item it is flying to now, from MISSION_CURRENT
         self.mission_msgs: queue.Queue = queue.Queue()  # MISSION_REQUEST(_INT) / MISSION_ACK during an upload
         self.m.mav.request_data_stream_send(self.m.target_system, self.m.target_component,
                                             mavutil.mavlink.MAV_DATA_STREAM_ALL, 10, 1)  # 10 Hz of everything
@@ -187,6 +188,8 @@ class Flight:
                 self.motor_pct = [max(0.0, min(100.0, (p - 1000) / 10.0)) for p in pwm]
             elif kind == "COMMAND_ACK":
                 self.acks[msg.command] = msg.result
+            elif kind == "MISSION_CURRENT":
+                self.mission_seq = msg.seq
             elif kind == "MISSION_ITEM_REACHED":
                 if msg.seq not in self.reached:
                     self.reached.append(msg.seq)

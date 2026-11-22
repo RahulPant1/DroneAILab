@@ -29,6 +29,8 @@ WAYPOINT_REACHED_M = 0.5
 PASSED_MARGIN_M = 0.3  # 'passed' needs the distance to grow by this much: more than estimate jitter
 TAKEOFF_DONE_M = 0.15
 LAND_SPEED_M_S = 0.6
+LAND_SPEED_HIGH_M_S = 1.5  # above LAND_SLOW_BELOW_M it comes down faster (like ArduPilot's WPNAV_SPEED_DN)
+LAND_SLOW_BELOW_M = 5.0
 CARROT_LEASH_M = 2.0  # the carrot waits if the drone is more than this far behind
 REPULSION_RANGE_M = 1.5  # obstacles closer than this (edge to edge) push the drone away
 REPULSION_GAIN = 0.3
@@ -191,7 +193,8 @@ class MissionFollower:
                 sp.x_m, sp.y_m = self._point_at(self.s)
 
         elif self.phase == "land":
-            self._land_alt = max(-0.3, self._land_alt - LAND_SPEED_M_S * dt)
+            rate = LAND_SPEED_HIGH_M_S if self._land_alt > LAND_SLOW_BELOW_M else LAND_SPEED_M_S
+            self._land_alt = max(-0.3, self._land_alt - rate * dt)
             sp.alt_m = self._land_alt
             self._ground_time = self._ground_time + dt if truth.on_ground else 0.0
             if self._ground_time > 0.3:
