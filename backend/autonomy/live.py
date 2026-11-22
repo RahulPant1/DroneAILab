@@ -62,6 +62,10 @@ class MissionSim(RealtimeSim):
         self._camera_sent_s = -1.0
         self._photos_sent = -1
         self._in_no_fly: str | None = None
+        self.cropmaps: list[dict] = []  # 🌱 crop-health maps from the last survey (made in a background thread)
+        self.cropmap_busy = False
+        self._cropmaps_version = 0
+        self._cropmaps_sent = 0
         super().__init__(config, seed)
 
     # ---- course ----
@@ -238,6 +242,35 @@ class MissionSim(RealtimeSim):
                 f"of the battery" + (f", {est['photos']} photos" if est["photos"] else "") + "."
                 + (" Try ⏩ to speed up time." if self.time_scale == 1 else ""))
 
+    def _make_cropmaps(self, plan: CompiledPlan, photos: list[dict]) -> None:
+        """Stitch each surveyed field's photos into a crop-health map, in a background thread (takes ~0.1-1 s),
+        so the live simulation never stutters."""
+        import threading
+
+        from .cropmap import build_map, remember
+
+        self.cropmap_busy = True
+        self.notices.append("🌱 Stitching the survey photos into a crop-health map...")
+
+        def work() -> None:
+            maps = []
+            try:
+                for sv in plan.surveys:
+                    shots = [p for p in photos if p["line"] is not None and plan.labels[p["line"]].startswith(sv["field"] + " ")]
+                    if shots:
+                        m = build_map(sv["field"], sv["polygon"], shots, seed=self.seed)
+                        m["id"] = remember(m)
+                        maps.append(m)
+                found = sum(len(m["findings"]) for m in maps)
+                self.notices.append(f"🌱 Crop-health map ready: {found} problem patch(es) found. Open 🗺 Field map.")
+            except Exception as exc:  # noqa: BLE001  (report, don't kill the sim)
+                self.notices.append(f"Couldn't make the crop-health map: {exc}")
+            self.cropmaps = maps
+            self._cropmaps_version += 1
+            self.cropmap_busy = False
+
+        threading.Thread(target=work, name="cropmap", daemon=True).start()
+
     def _pads(self) -> list[tuple[float, float, float]]:
         return [(p.x_m, p.y_m, p.size_m) for p in FARM.pads] if self.course_id == FARM_ID else []
 
@@ -343,6 +376,8 @@ class MissionSim(RealtimeSim):
             photos = f" {len(cam.photos)} photos taken." if cam else ""
             self.pilot.message = f"Plan complete. Landed on {land['place']}, {err:.2f} m from its centre.{photos}"
             self.notices.append(self.pilot.message)
+            if cam and cam.photos and self.follower_done.plan.surveys:
+                self._make_cropmaps(self.follower_done.plan, list(cam.photos))
         else:
             self.pilot.message = "Mission complete. Landed at the final waypoint."
 
@@ -526,6 +561,10 @@ class MissionSim(RealtimeSim):
         else:
             snap["camera"] = None
         snap["no_fly"] = self._in_no_fly
+        snap["cropmap_busy"] = self.cropmap_busy
+        if self._cropmaps_version != self._cropmaps_sent:  # the maps go out once, when new
+            snap["cropmaps"] = self.cropmaps
+            self._cropmaps_sent = self._cropmaps_version
         snap["formation"] = self.formation.snapshot() if self.formation.count else None
         p = self.perception()
         if p is not None:

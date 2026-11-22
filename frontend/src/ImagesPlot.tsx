@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { ImagesExtra, PlotDef } from './lab';
+import { drawNdvi } from './ndvi';
 
 type Frame = ImagesExtra['frames'][number];
 
@@ -10,6 +11,10 @@ function Picture({ f }: { f: Frame }) {
   useEffect(() => {
     const ctx = ref.current?.getContext('2d');
     if (!ctx) return;
+    if (f.colormap === 'ndvi') {
+      drawNdvi(ctx, f.image, f.w, f.h, f.marks ?? []);
+      return;
+    }
     const bytes = atob(f.image);
     const img = ctx.createImageData(f.w, f.h);
     for (let i = 0; i < bytes.length; i++) {
@@ -25,8 +30,10 @@ function Picture({ f }: { f: Frame }) {
   }, [f]);
   return (
     <figure className="cam-frame">
-      <canvas ref={ref} width={f.w} height={f.h} style={{ width: f.w * 1.6, height: f.h * 1.6 }} />
-      <figcaption className="small">{f.alt_m.toFixed(1)} m up · {f.detection ? `marker: ${f.detection.pixels} px` : 'no marker'}</figcaption>
+      <canvas ref={ref} width={f.w} height={f.h} style={f.colormap === 'ndvi'
+        ? { width: f.w * Math.min(2.4, 440 / Math.max(f.w, f.h)), height: f.h * Math.min(2.4, 440 / Math.max(f.w, f.h)) }
+        : { width: f.w * 1.6, height: f.h * 1.6 }} />
+      <figcaption className="small">{f.caption ?? `${f.alt_m.toFixed(1)} m up · ${f.detection ? `marker: ${f.detection.pixels} px` : 'no marker'}`}</figcaption>
     </figure>
   );
 }

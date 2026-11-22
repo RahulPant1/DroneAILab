@@ -31,6 +31,7 @@
   GET  /api/site               -> 🌾 the farm map (fields, buildings, no-fly zones, pads, places, geofence)
   POST /api/plan/compile       -> {spec: {tasks, altitude_m, speed_m_s, side_overlap_pct}, battery?} -> route + safety checks
   POST /api/ai/plan            -> {request: "survey the north field...", battery?} -> local-LLM task list, compiled + checked
+  POST /api/crop/report        -> {id} -> 🌱 local-LLM farmer's report on a crop-health map (Lab exp. 10 or a live survey)
                                WS {"cmd": "plan", "spec": {...}} flies it (re-checked; refused if any check FAILs);
                                WS {"cmd": "precland", "mode": "vision"|"gps"}, {"cmd": "camera", "enabled"}, {"cmd": "speed", "factor"}
 
@@ -378,6 +379,18 @@ async def ai_plan(body: dict) -> dict:
     """Plain English -> task list (local LLM) -> compiled plan + safety checks. Never flies anything itself."""
     battery = _battery_from(body)
     return await _with_ai(lambda: plan_from_text(get_ai_client(), str(body.get("request") or ""), FARM, battery))
+
+
+@app.post("/api/crop/report")
+async def crop_report(body: dict) -> dict:
+    """The farmer's report for a recent crop-health map (by id: the server keeps the findings, the client doesn't send them)."""
+    from .ai.crop_report import write_report
+    from .autonomy.cropmap import recall
+
+    m = recall(str(body.get("id") or ""))
+    if m is None:
+        raise HTTPException(404, "That map is no longer in memory (the server keeps the last 20). Run the survey again.")
+    return await _with_ai(lambda: write_report(get_ai_client(), m))
 
 
 # ---- Assistant (Phase 3) ----

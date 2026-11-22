@@ -378,3 +378,10 @@ ul.timeline li.mode { color: #4cc9f0; }
 .cam-frame figcaption { margin-top: 3px; }
 .sitl-plan { margin: 4px 0; }
 @media (max-width: 800px) { .planner-grid { grid-template-columns: 1fr; } }
+.modal.fieldmap { max-width: 980px; }
+.fieldmap-grid { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: start; }
+.ndvi-canvas { image-rendering: pixelated; border-radius: 6px; border: 1px solid var(--border); display: block; }
+.findings { margin: 6px 0 8px 18px; }
+.crop-report { margin-top: 8px; }
+.crop-report pre.answer { white-space: pre-wrap; font: inherit; margin: 0 0 4px; background: none; border: none; padding: 0; }
+@media (max-width: 800px) { .fieldmap-grid { grid-template-columns: 1fr; } }

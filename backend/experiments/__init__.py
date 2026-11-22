@@ -2,6 +2,7 @@
 
 from .attitude import EXPERIMENT as ATTITUDE
 from .base import Experiment, ExperimentError
+from .crop_health import EXPERIMENT as CROP_HEALTH
 from .mass_thrust import EXPERIMENT as MASS_THRUST
 from .missions import EXPERIMENT as MISSIONS
 from .pid_tuning import EXPERIMENT as PID_TUNING
@@ -12,7 +13,7 @@ from .thrust_takeoff import EXPERIMENT as THRUST_TAKEOFF
 from .wind import EXPERIMENT as WIND
 
 EXPERIMENTS: dict[str, Experiment] = {
-    e.id: e for e in (THRUST_TAKEOFF, MASS_THRUST, ATTITUDE, PID_TUNING, WIND, SENSOR_NOISE, MISSIONS, SURVEY, PRECISION_LANDING)
+    e.id: e for e in (THRUST_TAKEOFF, MASS_THRUST, ATTITUDE, PID_TUNING, WIND, SENSOR_NOISE, MISSIONS, SURVEY, PRECISION_LANDING, CROP_HEALTH)
 }
 
 

@@ -498,3 +498,19 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   taken), down-camera picture-in-picture at 5 Hz (12 KB base64 per picture), no-fly warnings when flown by hand.
 - Tests: +12 survey/plan, +5 precision landing, +6 mission planner (fake Ollama), +1 wind conversion, +1 opt-in real
   ArduPilot survey; phase-2 test updated for experiments 8-9. UI not verified in a browser.
+
+## 🌱 Crop-health maps (2026-11-23, user-approved: "go ahead with #3 and #1")
+- `cropmap.py`: NDVI ground truth per field (crop texture + planted patches: north = dry corner + pest damage, east =
+  waterlogged dip, orchard = diseased trees); photos sampled on a 0.25 m grid from the TRUE camera position and pasted
+  at their geotag (the estimate); smoothing, NDVI < 0.6, 2 m headland, patches >= 2 m².
+- What didn't work: (1) image matching between photos (±3 m search) made placement WORSE (1.4 -> 3.2 m): with slow
+  GPS drift neighbouring photos already agree, the error is a map-wide shift. (2) Ground control points (two dark
+  panels per field, one global shift): unreliable, panels often blurred out by photo-to-photo jitter, and one shift
+  can't fix a drift that changes over a 2-3 minute flight. Removed both; the lesson explains RTK / GCPs instead.
+  (3) The "true area" counted soil outside the field; fixed. (4) GCP panels showed up as false patches (moot now).
+- Results (4 seeds each, 20 m): every planted patch found in all 24 runs (3 fields x calm/real/windy), 1 false
+  alarm. Position error = the GPS error: 0.1-0.4 m perfect GPS, 0.4-2.4 m with 1.5 m drift.
+- Real gemma4 farmer's report: ~10 s first call, ~1-2 s after; 0 unverified numbers in 2 reports; causes labelled
+  as hypotheses.
+- Live: map built in a background thread after a survey plan lands (~0.1-1 s), sent once; 🗺 Field map modal with
+  NDVI colours, findings, "show the truth" toggle, 🤖 report. Lab experiment 10.

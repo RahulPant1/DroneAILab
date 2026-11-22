@@ -26,7 +26,7 @@ Full report with a chart per fault: [docs/results/fault-injection.md](docs/resul
 
 **4. A flight-log doctor with a local AI.** Open any ArduPilot `.BIN` log, from the simulator or **uploaded from a real drone**: it runs the checks a flight-test engineer would (vibration, EKF innovation ratios, GPS quality, attitude/altitude/position tracking, motor balance and saturation, battery, failsafes) and a local Gemma model writes a debrief: *what happened, most likely cause, what to check next*. The model sees only the summary, and every number it writes is checked against the data. [Example on a GPS-spoofing flight](docs/results/log-doctor-example.md).
 
-**5. Farm surveys, precision landing and an AI mission planner.** Type *"Survey the north field, then land on pad B"*: a local Gemma model turns it into a task list (only names from the farm map, never coordinates), and code plans a lawnmower survey from the camera footprint and overlap, routes around tall buildings and no-fly zones with A*, and checks altitude, geofence, no-fly zones and battery before you can press Fly. The same plan flies in DroneLab **or uploads to real ArduPilot as an AUTO mission**: both covered 100 % of the field ([comparison](docs/results/survey-compare.md)). The landing uses a simulated down camera that finds the pad's marker: **0.31 m average miss vs 1.61 m on drifting GPS alone** (8 runs).
+**5. Farm surveys, precision landing and an AI mission planner.** Type *"Survey the north field, then land on pad B"*: a local Gemma model turns it into a task list (only names from the farm map, never coordinates), and code plans a lawnmower survey from the camera footprint and overlap, routes around tall buildings and no-fly zones with A*, and checks altitude, geofence, no-fly zones and battery before you can press Fly. The same plan flies in DroneLab **or uploads to real ArduPilot as an AUTO mission**: both covered 100 % of the field ([comparison](docs/results/survey-compare.md)). The landing uses a simulated down camera that finds the pad's marker: **0.31 m average miss vs 1.61 m on drifting GPS alone** (8 runs). After a survey, the photos are stitched into a **crop-health (NDVI) map**, problem patches are found automatically (every planted patch found in 24 test runs, 1 false alarm) and the local AI writes the farmer's report.
 
 | You say (real local model) | Result |
 |---|---|
@@ -46,6 +46,7 @@ Full report with a chart per fault: [docs/results/fault-injection.md](docs/resul
 | Path planning (A*, potential fields), lidar sense-and-avoid with replanning, multi-agent avoidance | [backend/autonomy/](backend/autonomy/) |
 | Survey planning (camera footprint, overlap, coverage), task plans with safety checks, AI mission planner | [backend/autonomy/survey.py](backend/autonomy/survey.py), [plan.py](backend/autonomy/plan.py), [backend/ai/mission_planner.py](backend/ai/mission_planner.py) |
 | Vision-based precision landing (rendering, marker detection, pixel-to-ground geometry) | [backend/autonomy/precland.py](backend/autonomy/precland.py) |
+| Multispectral (NDVI) mapping: orthomosaic from geotagged photos, patch detection, AI report | [backend/autonomy/cropmap.py](backend/autonomy/cropmap.py), [backend/ai/crop_report.py](backend/ai/crop_report.py) |
 | Battery model, propulsion sizing (momentum theory), flight-time estimation | [backend/sim/battery.py](backend/sim/battery.py), [backend/sim/builder.py](backend/sim/builder.py) |
 | ArduPilot SITL, MAVLink (pymavlink), mission protocol, failsafes | [backend/sitl/](backend/sitl/) |
 | Fault injection and verification against ground truth | [backend/sitl/faults.py](backend/sitl/faults.py), [results](docs/results/fault-injection.md) |
@@ -53,7 +54,7 @@ Full report with a chart per fault: [docs/results/fault-injection.md](docs/resul
 | Real-time 3D UI (React, Three.js, WebSocket) | [frontend/src/](frontend/src/) |
 | Local LLM integration with grounding and validation | [backend/ai/](backend/ai/) |
 | CI with hardware-free flight tests | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
-| Teaching material: 19 lessons with self-checks | [docs/learn/](docs/learn/) |
+| Teaching material: 20 lessons with self-checks | [docs/learn/](docs/learn/) |
 
 ---
 
@@ -79,9 +80,9 @@ Click **Take off** (or press T), then hold W/A/S/D or the arrow keys (move), Spa
 - **🛩 Wingmen:** 1–4 drones fly in a V, line or column with you, each on its own autopilot; **🛡 avoid crashes** makes them dodge and break formation to get past obstacles.
 - **Wind** and **📡 sensor noise** (live): a pink ghost shows where the drone *thinks* it is.
 - **📡 Lidar** (live) and the **Lidar planner**: 72 laser beams map obstacles the drone doesn't know about; try the *Hidden walls* course.
-- **🌾 Hillside farm** course: fields, buildings, no-fly zones and landing pads. **🧭 Mission planner**: say what to do (local AI) or build the task list by hand, check it, fly it (⏩ speeds up time); **🎯 Land on pad** with the down camera (picture-in-picture), or GPS only to compare.
+- **🌾 Hillside farm** course: fields, buildings, no-fly zones and landing pads. **🧭 Mission planner**: say what to do (local AI) or build the task list by hand, check it, fly it (⏩ speeds up time), then open the **🗺 Field map** (crop health + 🤖 farmer's report); **🎯 Land on pad** with the down camera (picture-in-picture), or GPS only to compare.
 - **🔋 Battery** and **🛠 Build your own drone** (Drone Studio panel): pick frame, motors, props and battery, see weight, thrust-to-weight and flight time, then fly it on its own battery until the low-battery failsafe brings it home.
-- **Lab** tab: nine guided experiments (thrust, mass, attitude, PID tuning, wind, sensor noise, missions, field survey, precision landing) with plots, explanations and "try next" ideas. **History** compares saved runs.
+- **Lab** tab: ten guided experiments (thrust, mass, attitude, PID tuning, wind, sensor noise, missions, field survey, precision landing, crop-health map) with plots, explanations and "try next" ideas. **History** compares saved runs.
 - **🩺 Logs** tab: the flight-log doctor (simulator logs, or upload a real drone's `.BIN`), with a 🤖 local-AI debrief.
 - **💬 Assistant:** the local AI tutor (needs [Ollama](https://ollama.com) with a Gemma model; the app works without it).
 
@@ -97,7 +98,7 @@ In the app: **Fly** tab → **🛰 ArduPilot** → Start. The real autopilot fli
 
 Map ground station: `./scripts/qgc_setup.sh` once (QGroundControl 4.4.5, ~550 MB in `external/`; it needs `sudo apt install libgstreamer-gl1.0-0 libgstreamer-plugins-base1.0-0 libpulse-mainloop-glib0`), then `./scripts/qgc.sh`. If the 🛰 panel is running, QGroundControl joins the same flight.
 
-Lessons: [12 · ArduPilot SITL](docs/learn/12-ardupilot-sitl.md), [13 · Fault injection](docs/learn/13-fault-injection.md), [14 · Flight logs](docs/learn/14-flight-logs.md), [17 · Surveys](docs/learn/17-survey.md), [18 · Precision landing](docs/learn/18-precision-landing.md), [19 · AI mission planner](docs/learn/19-ai-mission-planner.md). Analyse a log from the terminal: `.venv/bin/python -m backend.logdoctor.analyze path/to/log.BIN`.
+Lessons: [12 · ArduPilot SITL](docs/learn/12-ardupilot-sitl.md), [13 · Fault injection](docs/learn/13-fault-injection.md), [14 · Flight logs](docs/learn/14-flight-logs.md), [17 · Surveys](docs/learn/17-survey.md), [18 · Precision landing](docs/learn/18-precision-landing.md), [19 · AI mission planner](docs/learn/19-ai-mission-planner.md), [20 · Crop-health maps](docs/learn/20-crop-health.md). Analyse a log from the terminal: `.venv/bin/python -m backend.logdoctor.analyze path/to/log.BIN`.
 
 ## Tests
 ```bash
@@ -119,12 +120,12 @@ Delete the folder. ArduPilot and QGroundControl live in its `external/` subfolde
 ## Project layout
 ```
 backend/sim/        physics, controller, sensors, estimator, battery, drone builder, pilot, real-time runner
-backend/autonomy/   missions, planners (A*, potential field, lidar), formation, farm site, surveys, task plans, precision landing
+backend/autonomy/   missions, planners (A*, potential field, lidar), formation, farm site, surveys, task plans, precision landing, crop maps
 backend/sitl/       ArduPilot SITL: launch, MAVLink flight, panel bridge, fault lab, QGroundControl
 backend/ai/         Ollama client, prompts, schema validation, assistant, AI mission planner
 backend/logdoctor/  ArduPilot log reader, engineer's checks, LLM debrief
 backend/experiments/ the Lab experiments          backend/games/  rings race
-frontend/src/       React + Three.js UI           docs/learn/     19 lessons
+frontend/src/       React + Three.js UI           docs/learn/     20 lessons
 docs/PRD.md         the spec it was built to      PROGRESS.md     build log, measurements, what didn't work
 ```
 

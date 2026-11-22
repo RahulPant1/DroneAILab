@@ -41,6 +41,27 @@ export interface SimState {
   survey: SurveyStatus | null; // 🌾 a flight plan with a survey camera is flying
   camera: CameraStatus | null; // 📷 down camera (on demand, or while precision landing)
   no_fly: string | null; // name of the no-fly zone the drone is in right now
+  cropmap_busy: boolean; // 🌱 stitching the last survey's photos
+  cropmaps?: CropMap[]; // only in the frame where new maps became ready
+}
+
+/** 🌱 A stitched crop-health (NDVI) map of one field, and what was found on it. */
+export interface CropMap {
+  id: string;
+  field: string;
+  cell_m: number;
+  bounds: [number, number, number, number]; // x0, x1, y0, y1 (m)
+  w: number;
+  h: number;
+  image: string; // NDVI × 255 per cell, north up (0 = no photo)
+  mapped_pct: number;
+  field_ndvi: number | null;
+  stressed_m2: number;
+  photos: number;
+  geotag_error_m: number | null;
+  false_alarms: number;
+  findings: { x_m: number; y_m: number; area_m2: number; mean_ndvi: number; min_ndvi: number; where: string; box: [number, number, number, number] }[];
+  truth: { x_m: number; y_m: number; cause: string; area_m2: number; found: boolean; position_error_m: number | null }[];
 }
 
 /** A photo: where it was taken (x, y), from what height, and the survey line's direction (rad). */
@@ -306,6 +327,7 @@ class SimConnection {
   config: DroneConfig | null = null;
   course: Course | null = null;
   race: RaceTrack | null = null;
+  cropmaps: CropMap[] = []; // 🌱 from the last survey flown live
   status: Status = 'connecting';
   log: LogEntry[] = [];
   version = 0; // bumps on config / status / log changes (not on every state frame)
@@ -328,6 +350,10 @@ class SimConnection {
       const msg = JSON.parse(event.data);
       if (msg.type === 'state') {
         this.latest = msg as SimState;
+        if (msg.cropmaps) {
+          this.cropmaps = msg.cropmaps as CropMap[];
+          this.bump();
+        }
         this.stateListeners.forEach((fn) => fn());
         return;
       }
@@ -430,6 +456,7 @@ export const api = {
   learn: (slug: string) => getJson<{ markdown: string }>(`/api/learn/${slug}`),
   site: () => getJson<Site>('/api/site'),
   compilePlan: (spec: PlanSpec, battery?: { cells: number; capacity_mah: number }) => postJson<FlightPlan>('/api/plan/compile', { spec, battery }),
+  cropReport: (id: string) => postJson<{ answer: string; model: string; unverified_numbers: string[]; duration_s: number }>('/api/crop/report', { id }),
   aiPlan: (request: string, battery?: { cells: number; capacity_mah: number }) => postJson<AiPlanReply>('/api/ai/plan', { request, battery }),
   validate: (config: DroneConfig) =>
     getJson<{ valid: boolean; problems: string[]; derived: Derived | null }>('/api/config/validate', {

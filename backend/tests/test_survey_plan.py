@@ -169,3 +169,72 @@ def test_live_plan_on_the_farm_with_time_speed_up():
     assert photos_seen > 10 and abs(rt.state.pos_m[0] + 12) < 0.3 and abs(rt.state.pos_m[1] - 30) < 0.3
     with pytest.raises(ValueError):
         rt.command("speed", factor=3)
+
+
+# ---- 🌱 crop-health maps ----
+
+def test_crop_map_finds_every_planted_patch_and_gps_error_shifts_it():
+    from backend.autonomy.cropmap import PATCHES, build_map, recall, remember, rule_report
+
+    p = compile_plan({"tasks": [{"type": "survey", "field": "north field"}], "altitude_m": 20})
+    perfect = run_plan(p, seed=0)
+    m = build_map("north field", p.surveys[0]["polygon"], perfect.scenario["photos"], seed=0)
+    assert m["found"] == len(PATCHES["north field"]) == 2 and m["false_alarms"] == 0
+    assert all(t["position_error_m"] < 0.6 for t in m["truth"])
+    big = max(m["truth"], key=lambda t: t["area_m2"])
+    assert big["found_area_m2"] == pytest.approx(big["area_m2"], rel=0.2)
+    assert m["mapped_pct"] == 100.0 and 0.75 < m["field_ndvi"] < 0.85
+    assert m["findings"][0]["where"] == "north-east corner"
+    drift = run_plan(p, sensors=SensorConfig(enabled=True, gps_drift_m=1.5), seed=0)
+    md = build_map("north field", p.surveys[0]["polygon"], drift.scenario["photos"], seed=0)
+    assert md["found"] == 2 and md["geotag_error_m"] > 0.5
+    assert max(t["position_error_m"] for t in md["truth"]) > max(t["position_error_m"] for t in m["truth"])
+    key = remember(m)
+    assert recall(key)["field"] == "north field" and "image" not in recall(key)
+    assert any("Patch 1" in line for line in rule_report(m))
+
+
+def test_crop_report_api_with_a_fake_llm(monkeypatch, tmp_path):
+    import json as _json
+
+    import httpx
+    from fastapi.testclient import TestClient
+
+    from backend import api
+    from backend.ai import assistant
+    from backend.ai.ollama_client import OllamaClient
+
+    monkeypatch.setattr(assistant, "LOG_PATH", tmp_path / "log.jsonl")
+    r = get_experiment("crop_health").run({"field": "orchard"}, 0)
+    key = r.scenario["cropmap"]["id"]
+    seen = []
+
+    def handler(request):
+        seen.append(_json.loads(request.content))
+        return httpx.Response(200, json={"message": {"content": "- Orchard average NDVI 0.81; one patch of 999 m²."}})
+
+    monkeypatch.setattr(api, "get_ai_client", lambda: OllamaClient("http://fake", "m", transport=httpx.MockTransport(handler)))
+    client = TestClient(api.app)
+    out = client.post("/api/crop/report", json={"id": key}).json()
+    assert "999" in out["unverified_numbers"] and "0.81" not in out["unverified_numbers"]
+    assert '"patches"' in seen[0]["messages"][1]["content"]
+    assert client.post("/api/crop/report", json={"id": "nope"}).status_code == 404
+
+
+def test_live_survey_makes_a_crop_map_after_landing():
+    import time
+
+    rt = MissionSim(get_preset("basic"))
+    rt.command("speed", factor=8)
+    rt.command("plan", spec={"tasks": [{"type": "survey", "field": "orchard"}], "altitude_m": 20})
+    for _ in range(int(60 / 0.05)):
+        rt.advance(0.05)
+        rt.snapshot()
+        if rt.follower is None:
+            break
+    deadline = time.monotonic() + 20
+    while rt.cropmap_busy and time.monotonic() < deadline:
+        time.sleep(0.05)
+    snap = rt.snapshot()
+    assert snap["cropmaps"] and snap["cropmaps"][0]["field"] == "orchard" and snap["cropmaps"][0]["found"] == 1
+    assert "cropmaps" not in rt.snapshot()  # sent once

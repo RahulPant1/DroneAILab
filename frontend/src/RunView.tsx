@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import Chart, { type ChartRun } from './Chart';
+import CropReport from './CropReport';
 import { exportCsv, exportJson, formatValue, type ExperimentDef, type Params, type RunResult } from './lab';
 
 export default function RunView(props: {
@@ -38,6 +39,9 @@ export default function RunView(props: {
         <section className="card">
           <h3>What happened</h3>
           <ul className="summary">{result.summary.map((line, i) => <li key={i}>{line}</li>)}</ul>
+          {typeof (result.scenario as { cropmap?: { id?: string } })?.cropmap?.id === 'string' && (
+            <CropReport id={(result.scenario as { cropmap: { id: string } }).cropmap.id} />
+          )}
           {result.events.length > 0 && (
             <>
               <h3>Events</h3>

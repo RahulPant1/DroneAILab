@@ -201,7 +201,9 @@ class SurveyCamera:
             return
         self.photos.append({"t_s": round(t, 2), "x_m": round(float(truth_xyz[0]), 3), "y_m": round(float(truth_xyz[1]), 3),
                             "alt_m": round(float(truth_xyz[2]), 3), "angle_rad": self.angle_by_line.get(self.line, 0.0),
-                            "line": self.line})
+                            "line": self.line,
+                            # the photo's GEOTAG: where the drone THOUGHT it was (what mapping software gets)
+                            "est_x_m": round(float(est_xy[0]), 3), "est_y_m": round(float(est_xy[1]), 3)})
         self._last_est = (float(est_xy[0]), float(est_xy[1]))
 
     def update(self, t: float, line: int | None, est_xy, truth_xyz) -> None:

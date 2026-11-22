@@ -1,6 +1,7 @@
 // Flight buttons, keyboard nudges, a "fly to" box, and the mission bar (course + autopilot).
 
 import { useEffect, useRef, useState } from 'react';
+import FieldMap from './FieldMap';
 import MissionPlanner from './MissionPlanner';
 import { api, compassName, sim, useSimUi, useThrottledState, type SimState } from './sim';
 import SitlBar from './SitlPanel';
@@ -211,7 +212,8 @@ const PHASE_LABELS: Record<string, string> = { gps: 'waiting for GPS to settle',
 
 /** Load a course into the 3D world, and let the mission autopilot fly it (or fly it yourself). */
 function MissionBar({ s, offline, onLearn }: { s: SimState | null; offline: boolean; onLearn: (slug: string) => void }) {
-  const { course } = useSimUi();
+  const { course, cropmaps } = useSimUi();
+  const [showMap, setShowMap] = useState(false);
   const [scenarios, setScenarios] = useState<Record<string, { title: string }>>({});
   const [planner, setPlanner] = useState('astar');
   const [speed, setSpeed] = useState(1.5);
@@ -225,6 +227,7 @@ function MissionBar({ s, offline, onLearn }: { s: SimState | null; offline: bool
 
   return (
     <div className="mission-bar">
+      {showMap && cropmaps.length > 0 && <FieldMap maps={cropmaps} onClose={() => setShowMap(false)} onLearn={(slug) => { setShowMap(false); onLearn(slug); }} />}
       {planning && <MissionPlanner onClose={() => setPlanning(false)} onLearn={(slug) => { setPlanning(false); onLearn(slug); }} />}
       <div className="row small">
         <label className="inline" title="Put obstacles and waypoints into the 3D world. The drone moves to the start point.">
@@ -248,6 +251,8 @@ function MissionBar({ s, offline, onLearn }: { s: SimState | null; offline: bool
               <input type="checkbox" checked={!!s?.camera && !s.camera.landing} disabled={offline} onChange={(e) => sim.send('camera', { enabled: e.target.checked })} /> 📷 Camera
             </label>
             {s?.survey && <span className="keys">📷 {s.survey.photos_taken} photos{s.survey.on_line ? ' · on a survey line' : ''}</span>}
+            {s?.cropmap_busy && <span className="keys">🌱 stitching the map…</span>}
+            {cropmaps.length > 0 && <button onClick={() => setShowMap(true)} title="The crop-health map stitched from the last survey's photos">🗺 Field map</button>}
           </>
         )}
         {course && !farm && (

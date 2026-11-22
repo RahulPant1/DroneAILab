@@ -75,7 +75,13 @@ export interface MapExtra {
 
 /** A strip of pictures (e.g. the down camera on the way down). */
 export interface ImagesExtra {
-  frames: { alt_m: number; t_s: number; image: string; w: number; h: number; detection: { box: [number, number, number, number]; pixels: number } | null }[];
+  frames: {
+    alt_m: number; t_s: number; image: string; w: number; h: number;
+    detection: { box: [number, number, number, number]; pixels: number } | null;
+    colormap?: 'ndvi'; // bytes = NDVI × 255 (crop-health map)
+    marks?: import('./ndvi').Mark[];
+    caption?: string;
+  }[];
 }
 
 export type Params = Record<string, number | string>;

@@ -221,7 +221,8 @@ Showcase (public repo, CI that flies ArduPilot, README), fault-injection lab on 
 doctor (local Gemma explains ArduPilot logs, offline). Then (2026-11-22) lidar sense-and-avoid, a LiPo battery and
 the Drone Builder; then (2026-11-22) a farm site with survey missions (also flown on ArduPilot SITL), vision-based
 precision landing (a rendered down camera, numpy only, no OpenCV) and the AI mission planner (local Gemma writes a
-task list from names on the map; code routes and safety-checks it; the user presses Fly).
+task list from names on the map; code routes and safety-checks it; the user presses Fly). Then (2026-11-23) crop-health
+(NDVI) maps stitched from the survey photos, patch detection and a local-AI farmer's report.
 
 ### Roadmap (do NOT install or scaffold)
 PX4 SITL + Gazebo + MAVSDK, ROS 2, camera/vision, RL, NVIDIA Warp acceleration.
