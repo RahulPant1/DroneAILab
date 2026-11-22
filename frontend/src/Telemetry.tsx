@@ -80,7 +80,33 @@ export default function Telemetry({ onLearn }: { onLearn: (slug: string) => void
         </div>
       ))}
       <p className="muted small">Red bar = motor at 100 %: it can't give any more.</p>
+      {s.battery && <BatteryPanel b={s.battery} />}
       <button className="link" onClick={() => onLearn('02-roll-pitch-yaw')}>📖 Learn: roll, pitch and yaw</button>
     </section>
+  );
+}
+
+const BATTERY_TEXT = { ok: 'OK', low: 'LOW: flying home', critical: 'CRITICAL: landing', empty: 'EMPTY' } as const;
+
+/** 🔋 Battery: charge, voltage (sagging under load), current, time left. */
+function BatteryPanel({ b }: { b: NonNullable<import('./sim').SimState['battery']> }) {
+  const pct = Math.max(0, Math.min(100, b.soc_pct));
+  const left = b.time_left_s == null ? '–' : b.time_left_s >= 60 ? `${Math.floor(b.time_left_s / 60)} min ${String(b.time_left_s % 60).padStart(2, '0')} s` : `${b.time_left_s} s`;
+  return (
+    <div className="battery">
+      <h3>🔋 Battery {b.cells}S {b.capacity_mah} mAh{b.drain_speedup > 1 ? ` (drains ${b.drain_speedup}× fast)` : ''}</h3>
+      <div className="battery-bar" title={`${pct.toFixed(0)} % charge left`}>
+        <span className={`fill ${b.status}`} style={{ width: `${pct}%` }} />
+        <span className="label">{pct.toFixed(0)} %</span>
+      </div>
+      <table className="nums">
+        <tbody>
+          <tr title="Under load the voltage sags below its resting value: watch it dip when you climb"><th>Voltage</th><td>{b.voltage_v.toFixed(2)} V</td><td>{b.cell_v.toFixed(2)} V/cell</td></tr>
+          <tr title="What the motors draw right now"><th>Current</th><td>{b.current_a.toFixed(1)} A</td><td>{b.power_w.toFixed(0)} W</td></tr>
+          <tr title="At this draw, until the low-battery point (~25 % left)"><th>Time left</th><td>{left}</td><td>used {b.used_mah} mAh</td></tr>
+        </tbody>
+      </table>
+      <p className={`muted small battery-status ${b.status}`}>Status: <b>{BATTERY_TEXT[b.status]}</b> · low below 3.6 V/cell, critical below 3.4</p>
+    </div>
   );
 }

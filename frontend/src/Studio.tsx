@@ -1,6 +1,7 @@
 // Drone Studio: pick a preset, tweak a few key numbers, see T/W, apply.
 
 import { useEffect, useMemo, useState } from 'react';
+import Builder from './Builder';
 import { api, GRAVITY_M_S2, sim, useSimUi, type DroneConfig, type PresetsResponse } from './sim';
 
 interface Param {
@@ -74,6 +75,7 @@ export default function Studio({ onLearn }: { onLearn: (slug: string) => void })
   const [draft, setDraft] = useState<DroneConfig | null>(null);
   const [advanced, setAdvanced] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
+  const [building, setBuilding] = useState(false);
 
   useEffect(() => {
     api.presets().then(setCatalog).catch((e) => setProblems([String(e)]));
@@ -123,6 +125,8 @@ export default function Studio({ onLearn }: { onLearn: (slug: string) => void })
         </select>
       </label>
       <p className="muted small">Current: <b>{draft.name}</b></p>
+      <button className="builder-open" onClick={() => setBuilding(true)} title="Pick a frame, motors, props and battery like a real builder: see weight, thrust-to-weight and flight time, then fly it">🛠 Build your own drone…</button>
+      {building && <Builder onClose={() => setBuilding(false)} onLearn={(s) => { setBuilding(false); onLearn(s); }} />}
 
       <div className={`tw ${tw < 1 ? 'bad' : tw < 1.5 ? 'warn' : 'good'}`} title="Thrust-to-weight: max total thrust divided by weight. It must be above 1 to fly.">
         <div className="tw-value">T/W {tw.toFixed(2)}</div>

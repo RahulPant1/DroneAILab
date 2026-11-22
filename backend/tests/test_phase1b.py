@@ -116,7 +116,7 @@ def test_health_reports_llm_offline_and_sim_ok_when_ollama_is_unreachable(client
 def test_presets_and_limits(client):
     body = client.get("/api/presets").json()
     assert set(body["presets"]) == {"basic", "lightweight", "heavy", "high_thrust"}
-    assert body["limits"]["mass_kg"] == [0.2, 5.0]
+    assert body["limits"]["mass_kg"] == [0.1, 5.0]  # 0.1: the Drone Builder's micro quad is ~0.18 kg
 
 
 def test_validate_accepts_good_and_rejects_bad_configs(client):

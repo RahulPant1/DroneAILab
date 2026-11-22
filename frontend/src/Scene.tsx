@@ -170,6 +170,63 @@ const pickArduPilotTrail = () => {
   return a?.pos_m && a.t_s !== undefined && a.state !== 'off' ? { t_s: a.t_s, pos_m: a.pos_m } : null;
 };
 
+/** 📡 Lidar: the beams of the latest scan (red = hit something) and the map of everything it has hit. */
+function LidarView() {
+  const { rays, cubes, mapRef, keyRef } = useMemo(() => {
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(72 * 2 * 3), 3));
+    geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(72 * 2 * 3), 3));
+    const rays = new THREE.LineSegments(geom, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 }));
+    rays.frustumCulled = false;
+    const cubes = new THREE.InstancedMesh(new THREE.BoxGeometry(0.18, 0.18, 0.18), new THREE.MeshBasicMaterial({ color: '#ef476f' }), 4000);
+    cubes.count = 0;
+    cubes.frustumCulled = false;
+    return { rays, cubes, mapRef: { current: [] as [number, number][] }, keyRef: { current: '' } };
+  }, []);
+  const m4 = useMemo(() => new THREE.Matrix4(), []);
+  useFrame(() => {
+    const l = sim.latest?.lidar;
+    rays.visible = !!l;
+    cubes.visible = !!l;
+    if (!l) {
+      mapRef.current = [];
+      return;
+    }
+    const pos = rays.geometry.attributes.position as THREE.BufferAttribute;
+    const col = rays.geometry.attributes.color as THREE.BufferAttribute;
+    const n = l.ranges.length;
+    const [ox, oy, oz] = l.origin;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const r = l.ranges[i];
+      const hit = r < l.range_m - 1e-3;
+      pos.setXYZ(2 * i, ox, oy, oz);
+      pos.setXYZ(2 * i + 1, ox + r * Math.cos(a), oy + r * Math.sin(a), oz);
+      const c = hit ? [1, 0.28, 0.43] : [0.3, 0.79, 0.94];
+      const f = hit ? 1 : 0.25; // misses fade out
+      col.setXYZ(2 * i, c[0] * f, c[1] * f, c[2] * f);
+      col.setXYZ(2 * i + 1, c[0] * f, c[1] * f, c[2] * f);
+    }
+    pos.needsUpdate = true;
+    col.needsUpdate = true;
+    if (l.map) mapRef.current = l.map; // the server only sends the map when it changed
+    const key = `${l.map_version}:${mapRef.current.length}:${oz.toFixed(1)}`;
+    if (key !== keyRef.current) {
+      keyRef.current = key;
+      const cells = mapRef.current.slice(0, 4000);
+      cells.forEach(([x, y], i) => cubes.setMatrixAt(i, m4.makeTranslation(x, y, Math.max(0.09, oz))));
+      cubes.count = cells.length;
+      cubes.instanceMatrix.needsUpdate = true;
+    }
+  });
+  return (
+    <>
+      <primitive object={rays} />
+      <primitive object={cubes} />
+    </>
+  );
+}
+
 /** The path flown so far: a line that grows as the drone moves (last ~1500 points). */
 function Trail({ pick = pickOwnTrail, color = '#4cc9f0' }: { pick?: () => { t_s: number; pos_m: Vec3 } | null; color?: string }) {
   const N = 1500;
@@ -380,6 +437,7 @@ export default function Scene({ armLength, follow }: { armLength: number; follow
         <Trail pick={pickArduPilotTrail} color={ARDUPILOT_COLOR} />
         <ArduPilotDrone armLength={armLength} />
         <ArduPilotTruth />
+        <LidarView />
       </group>
       <OrbitControls makeDefault target={[0, 0.5, 0]} maxPolarAngle={Math.PI / 2 - 0.02} />
       <FollowCamera enabled={follow} />

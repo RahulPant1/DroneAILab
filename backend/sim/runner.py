@@ -17,6 +17,7 @@ from typing import Callable, Protocol
 
 import numpy as np
 
+from .battery import LOW_CELL_V, Battery, BatteryConfig, validate_battery
 from .config import ConfigError, DroneConfig, require_valid
 from .control import CascadedController, Setpoint
 from .environment import EnvConfig, Wind, validate_env
@@ -74,6 +75,7 @@ class LightweightSim:
         initial_state: State | None = None,
         env: EnvConfig | None = None,
         sensors: SensorConfig | None = None,
+        battery: BatteryConfig | None = None,
     ) -> State:
         self.config = require_valid(config)
         self.env = env or EnvConfig()
@@ -102,7 +104,18 @@ class LightweightSim:
         self.step_count = 0
         self.motor_pct = np.zeros(4)
         self.rotor_energy_j = 0.0
+        self.battery = None
+        self.set_battery(battery)
         return self.state
+
+    def set_battery(self, cfg: BatteryConfig | None, soc: float = 1.0) -> None:
+        """Fly on a battery (None = unlimited power at the motors' rated voltage, the default)."""
+        if cfg is not None:
+            problems = validate_battery(cfg)
+            if problems:
+                raise ConfigError(" ".join(problems))
+        self.battery = Battery(cfg, soc) if cfg else None
+        self.physics.voltage_scale = self.battery.voltage_scale if self.battery else 1.0
 
     def set_env(self, env: EnvConfig) -> None:
         """Change the wind without restarting (live view). Gusts restart from calm, with fresh randomness."""
@@ -146,6 +159,9 @@ class LightweightSim:
             readings = self.sensors.sample(self.state, self.physics.last_accel_m_s2)
             self.estimator.update(readings, self.state.time_s)
         self.rotor_energy_j += self.physics.last_rotor_power_w * PHYSICS_DT_S
+        if self.battery:
+            self.battery.step(self.physics.last_rotor_power_w, PHYSICS_DT_S)
+            self.physics.voltage_scale = self.battery.voltage_scale
         self.step_count += 1
         return self.state
 
@@ -153,6 +169,7 @@ class LightweightSim:
         return self.state
 
 
+BATT_FAILSAFE_AFTER_S = 3.0  # battery below a limit this long (sim time) -> failsafe
 GPS_FAILSAFE_AFTER_S = 1.0  # GPS lost this long -> stop trusting the position estimate
 # Extra air drag in the failsafe (N per m/s; the drone's own is 0.10). Not real physics: a helper so the drone
 # doesn't coast so far when you steer it without GPS. Speed now halves in about 1.4 s instead of ~7 s.
@@ -180,12 +197,17 @@ class RealtimeSim:
         self.failsafe_tilt_rad = FAILSAFE_TILT_RAD  # how far a full W/A/S/D press tilts the drone in failsafe
         self._gps_lost_at_s = 0.0
         self._failsafe_was_on = False
+        self.battery_cfg: BatteryConfig | None = None  # None = unlimited power (default); kept across resets
         self.reset(config, seed)
 
     def reset(self, config: DroneConfig | None = None, seed: int | None = None) -> None:
         self.config = config or self.config
         self.seed = self.seed if seed is None else seed
-        self.sim.reset(self.config, self.seed, self.start_state(), env=self.env, sensors=self.sensor_cfg)
+        self.sim.reset(self.config, self.seed, self.start_state(), env=self.env, sensors=self.sensor_cfg,
+                       battery=self.battery_cfg)
+        self.home_xy = (float(self.sim.state.pos_m[0]), float(self.sim.state.pos_m[1]))  # where "fly home" goes
+        self._batt_fs: str | None = None  # battery failsafe: None | "rtl" (flying home) | "land"
+        self._batt_bad_since: float | None = None
         self.pilot = Pilot()
         self.paused = False
         self._time_debt_s = 0.0
@@ -204,6 +226,7 @@ class RealtimeSim:
 
     def next_setpoint(self, dt_s: float) -> Setpoint:
         """What the controller should aim for during the next physics step (the pilot decides)."""
+        self.check_battery()
         self.pilot.attitude_mode = self.failsafe_active()
         return self.apply_failsafe(self.pilot.update(self.sim.estimate, dt_s, self.state))  # decides on the estimate
 
@@ -233,6 +256,81 @@ class RealtimeSim:
             return sp
         roll, pitch = self.pilot.tilt_from_sticks(self.failsafe_tilt_rad)
         return replace(sp, position_control=False, roll_rad=roll, pitch_rad=pitch)
+
+    # ---- battery ----
+
+    def set_battery(self, enabled: bool, cells=3, capacity_mah=3000.0, drain_speedup=1.0, cfg: BatteryConfig | None = None) -> str:
+        """Fly on a battery (or not). Takes effect at once with a full battery; kept across resets."""
+        if enabled:
+            if cfg is None:
+                try:
+                    base = self.battery_cfg or BatteryConfig()
+                    cfg = replace(base, cells=int(cells), capacity_mah=float(capacity_mah), drain_speedup=float(drain_speedup))
+                except (TypeError, ValueError):
+                    raise ValueError("Battery needs numbers: cells, capacity_mah, drain_speedup.") from None
+            self.sim.set_battery(cfg)  # raises ConfigError (a ValueError) if out of range
+            self.battery_cfg = cfg
+        else:
+            self.sim.set_battery(None)
+            self.battery_cfg = None
+        self._batt_fs, self._batt_bad_since = None, None
+        if not enabled:
+            return "Battery off: unlimited power."
+        speed = f", draining {cfg.drain_speedup:g}× faster than real" if cfg.drain_speedup > 1 else ""
+        return (f"Battery on: {cfg.cells}S {cfg.capacity_mah:.0f} mAh, full{speed}. Watch the voltage sag as you climb; "
+                f"below {LOW_CELL_V} V per cell it flies home and lands.")
+
+    def abort_autopilot(self) -> None:
+        """A failsafe takes over: stop any autopilot (the live missions override this)."""
+
+    def check_battery(self) -> None:
+        """Battery failsafe, like ArduPilot's BATT_FS_LOW_ACT / CRT_ACT: after 3 s below the LOW voltage, fly home
+        and land; below CRITICAL, land where it is. Voltage sags under load, so a hard climb can dip it briefly:
+        the 3 s wait stops that from triggering it."""
+        b = self.sim.battery
+        s = self.state
+        if b and b.status == "empty" and self._batt_fs != "empty":
+            self.abort_autopilot()
+            self._batt_fs = "empty"
+            msg = "🔋 Battery EMPTY: the motors stopped." + (" It fell." if not s.on_ground else "")
+            self.pilot = Pilot()  # motors off until Reset
+            self.pilot.message = msg
+            self.notices.append(msg)
+            return
+        if not b or not self.pilot.sp.armed or s.on_ground:
+            self._batt_bad_since = None
+            return
+        status = b.status
+        if status == "ok":
+            self._batt_bad_since = None
+            return
+        if self._batt_bad_since is None:
+            self._batt_bad_since = s.time_s
+            return
+        # The wait is in BATTERY time: with a faster-draining demo battery it's shorter, so it can still react.
+        if s.time_s - self._batt_bad_since < BATT_FAILSAFE_AFTER_S / b.cfg.drain_speedup:
+            return
+        est = self.sim.estimate
+        if status in ("critical", "empty") and self._batt_fs != "land":
+            self.abort_autopilot()
+            self._batt_fs = "land"
+            msg = f"🔋 Battery CRITICAL ({b.cell_v:.2f} V per cell): landing right here."
+            self.pilot.land(est)
+            self.pilot.message = msg
+            self.notices.append(msg)
+        elif status == "low" and self._batt_fs is None:
+            self.abort_autopilot()
+            self._batt_fs = "rtl"
+            msg = f"🔋 Battery low ({b.cell_v:.2f} V per cell): flying home and landing."
+            if self.pilot.mode not in ("takeoff", "hover", "land"):
+                self.pilot.mode = "hover"
+            self.pilot.set_target(self.home_xy[0], self.home_xy[1], None, None)
+            self.pilot.message = msg
+            self.notices.append(msg)
+        if self._batt_fs == "rtl" and math.hypot(est.pos_m[0] - self.home_xy[0], est.pos_m[1] - self.home_xy[1]) < 0.6:
+            self._batt_fs = "land"
+            self.pilot.land(est)
+            self.pilot.message = "🔋 Home: landing."
 
     @property
     def state(self) -> State:
@@ -283,6 +381,9 @@ class RealtimeSim:
         if cmd == "sticks":
             self.pilot.set_sticks(Sticks(**{k: float(args.get(k, 0.0)) for k in ("forward", "left", "up", "yaw")}))
             return ""
+        if cmd == "battery":
+            return self.set_battery(bool(args.get("enabled", False)), args.get("cells", 3), args.get("capacity_mah", 3000.0),
+                                    args.get("drain_speedup", 1.0))
         raise ValueError(f"Unknown command '{cmd}'.")
 
     def set_wind(self, speed_m_s, direction_deg, gust_m_s) -> str:
@@ -381,6 +482,7 @@ class RealtimeSim:
             "failsafe": self.failsafe_active(),  # GPS-loss failsafe: holding level + altitude, not position
             "failsafe_drag_n_s_m": self.failsafe_drag_n_s_m,  # extra air drag in failsafe (0 = real physics)
             "failsafe_tilt_deg": round(math.degrees(self.failsafe_tilt_rad), 1),  # a full W/A/S/D press in failsafe
+            "battery": ({**self.sim.battery.snapshot(), "failsafe": self._batt_fs} if self.sim.battery else None),
             "setpoint": {
                 "x_m": round(sp.x_m, 3),
                 "y_m": round(sp.y_m, 3),

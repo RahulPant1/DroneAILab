@@ -21,7 +21,7 @@ def test_hover_throttle_is_100_over_tw():
 def test_out_of_range_values_are_rejected_with_a_readable_reason():
     bad = DroneConfig().with_changes(mass_kg=9.0, gains={"alt_kp": -1.0})
     problems = validate_config(bad)
-    assert any("mass_kg" in p and "0.2–5.0" in p for p in problems)
+    assert any("mass_kg" in p and "0.1–5.0" in p for p in problems)
     assert any("gains.alt_kp" in p for p in problems)
     with pytest.raises(ConfigError):
         require_valid(bad)

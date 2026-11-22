@@ -19,6 +19,9 @@
 
   GET  /api/missions/scenarios -> built-in mission courses
   GET  /api/race/tracks       -> rings-race tracks + best times
+  GET  /api/builder/parts      -> 🛠 Drone Builder catalogue;  POST /api/builder/design {parts} -> report
+                               WS {"cmd": "design", "parts": {...}, "drain_speedup": 1} flies it on its battery;
+                               WS {"cmd": "battery", "enabled", "cells", "capacity_mah", "drain_speedup"}
   GET  /api/logs               -> ArduPilot flight logs (simulator + uploaded .BIN)
   POST /api/logs/upload        -> raw .BIN body + X-Filename header -> {id}
   GET  /api/logs/{id}/analysis -> 🩺 log doctor: checks, timeline, charts
@@ -56,6 +59,7 @@ from .autonomy.mission import PLANNERS, SCENARIOS, MissionError, mission_from_di
 from .sim.environment import EnvConfig
 from .ai.ollama_client import AIError, AIOffline, OllamaClient
 from .experiments import EXPERIMENTS, ExperimentError, get_experiment
+from .sim import builder
 from .sim.config import GAIN_LIMITS, LIMITS, PRESETS, ConfigError, DroneConfig, get_preset, validate_config
 from .autonomy.live import MissionSim
 from .games.race import TRACKS, load_best_times
@@ -225,6 +229,22 @@ def delete_run(run_id: str) -> dict:
 # ---- Missions (Phase 4): custom courses; the built-in ones are Lab experiment 7 ----
 
 
+@app.get("/api/builder/parts")
+def builder_parts() -> dict:
+    """🛠 Drone Builder catalogue: frames, motors, props, battery options."""
+    return builder.catalog()
+
+
+@app.post("/api/builder/design")
+def builder_design(body: dict | None = None) -> dict:
+    """Work out a design: mass, T/W, hover throttle and power, flight time, warnings."""
+    try:
+        d = builder.design((body or {}).get("parts") or {})
+    except builder.DesignError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {"report": d["report"], "config": d["config"].to_dict(), "battery": d["battery"].to_dict(), "parts": d["parts"]}
+
+
 @app.get("/api/logs")
 def logs_list() -> dict:
     """ArduPilot flight logs: the simulator's own, and .BIN files you uploaded (newest first)."""
@@ -386,6 +406,10 @@ def handle_message(session: MissionSim, msg) -> dict | None:
     cmd = msg["cmd"]
     args = {k: v for k, v in msg.items() if k != "cmd"}
     try:
+        if cmd == "design":  # 🛠 Drone Builder: fly this design on its own battery
+            cfg, text = session.load_design(args.get("parts") or {}, float(args.get("drain_speedup", 1.0)))
+            return {"type": "config", "config": cfg.to_dict(), "course": session.course_info(), "race": session.race_info(),
+                    "message": text}
         if cmd == "sitl":  # the 🛰 ArduPilot panel (one SITL per server, shared by all tabs)
             return {"type": "info", "message": BRIDGE.handle(args)}
         if cmd in ("reset", "start") and ("config" in args or "preset" in args):
@@ -393,9 +417,13 @@ def handle_message(session: MissionSim, msg) -> dict | None:
             problems = validate_config(cfg)
             if problems:
                 return {"type": "error", "message": " ".join(problems)}
+            battery_note = ""
+            if session.battery_cfg is not None:  # a builder design's battery doesn't belong to another drone
+                session.set_battery(False)
+                battery_note = " Battery off (it belonged to the previous design)."
             session.reset(cfg)
             return {"type": "config", "config": cfg.to_dict(), "course": session.course_info(), "race": session.race_info(),
-                    "message": f"Reset with '{cfg.name}'."}
+                    "message": f"Reset with '{cfg.name}'.{battery_note}"}
         if cmd == "reset":
             session.reset()
             return {"type": "config", "config": session.config.to_dict(), "course": session.course_info(),

@@ -60,6 +60,8 @@ export interface MapExtra {
   waypoints: [number, number][];
   planned_route: [number, number][];
   safety_zone_m: number;
+  discovered?: [number, number][]; // lidar planner: where its lidar hit something (its map)
+  plans?: [number, number][][]; // lidar planner: every route it chose (the first is the straight line)
 }
 
 export type Params = Record<string, number | string>;

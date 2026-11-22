@@ -63,7 +63,13 @@ export default function MapPlot({ plot, runs }: { plot: PlotDef; runs: ChartRun[
             </rect>
           </g>
         ))}
+        {(extra.plans ?? []).slice(0, -1).map((p, i) => (
+          <polyline key={`plan${i}`} points={p.map(([x, y]) => pt(x, y)).join(' ')} className="map-plan map-old-plan" />
+        ))}
         <polyline points={extra.planned_route.map(([x, y]) => pt(x, y)).join(' ')} className="map-plan" />
+        {(extra.discovered ?? []).map(([x, y], i) => (
+          <rect key={`d${i}`} x={x - 0.09} y={-y - 0.09} width={0.18} height={0.18} className="map-lidar-hit" />
+        ))}
         {paths.map((p, i) => (
           <polyline key={i} points={p.map(([x, y]) => pt(x, y)).join(' ')} className="map-flown"
             style={{ stroke: RUN_COLORS[i % 2], strokeDasharray: i === 1 ? '5 4' : undefined }} />

@@ -8,7 +8,8 @@ from backend.sim.runner import RunResult
 
 from .base import Experiment, ExperimentError, Metric, Param, Plot, Series, fmt, plots_to_dicts, try_next
 
-PLANNER_NAMES = {"straight": "Straight lines", "potential": "Potential field", "astar": "A* path planning"}
+PLANNER_NAMES = {"straight": "Straight lines", "potential": "Potential field", "astar": "A* path planning",
+                 "lidar": "Lidar: sense and replan"}
 WIND_DIRECTION_DEG = 90.0  # wind blows toward north: a crosswind for these mostly east-going routes
 
 
@@ -29,7 +30,8 @@ def run(params: dict, seed: int) -> RunResult:
              "solid = where the drone really flew. Numbers = waypoints, ▲ = start.",
              (Series("x_m", "flown path"), Series("y_m", "flown path")), kind="map",
              extra={"obstacles": r.scenario["mission"]["obstacles"], "waypoints": r.scenario["mission"]["waypoints"],
-                    "planned_route": r.scenario["planned_route"], "safety_zone_m": 0.3 + r.metrics["safety_margin_m"]}),
+                    "planned_route": r.scenario["planned_route"], "safety_zone_m": 0.3 + r.metrics["safety_margin_m"],
+                    **({"discovered": r.scenario["discovered"], "plans": r.scenario["plans"]} if planner == "lidar" else {})}),
         Plot("clearance", "Distance to obstacles and to the plan", "distance (m)",
              "Clearance = gap between the drone's edge and the nearest obstacle (0 = touching; shown up to 5 m). "
              "Cross-track = how far it is from the planned path.",
@@ -69,6 +71,14 @@ def summarise(p: dict, r: RunResult) -> list[str]:
             "a 'local minimum'. A potential field only reacts to what's close by, so it can't see the way out. "
             "A planner that searches the whole map (A*) can."
         )
+    if p["planner"] == "lidar":
+        lines.append(
+            f"It knew only the waypoints. Its lidar took {m['lidar_scans']} scans and mapped {m['map_cells']} cells of obstacle "
+            f"(red dots); it replanned {m['replans']} times as new obstacles came into view"
+            + (f" and braked {m['brakes']} times" if m["brakes"] else "") + ". Faint dashed lines = the plans it dropped."
+        )
+        lines.append("A* knows the whole map before take-off; the lidar planner has to discover it, so its route is usually "
+                     "a little longer. That's the price of not having a map.")
     if p["planner"] == "astar":
         lines.append(
             f"A* searched {m['cells_expanded']} grid cells in {m['planning_time_ms']:.0f} ms before take-off and planned a "
@@ -98,6 +108,8 @@ def suggestions(p: dict, r: RunResult) -> list[dict]:
         out.append(try_next("Same mission with A* path planning.", planner="astar"))
     if p["planner"] != "potential":
         out.append(try_next("Try the potential field: does it find its own way around?", planner="potential"))
+    if p["planner"] != "lidar":
+        out.append(try_next("Hidden walls with the lidar planner: it has to discover the second wall.", scenario="hidden_walls", planner="lidar"))
     if p["scenario"] != "box_canyon":
         out.append(try_next("The box canyon: a U-shaped trap. Compare the potential field with A*.", scenario="box_canyon", planner="potential"))
     out.append(try_next("Fly faster (3 m/s) and watch the corners in the square patrol.", scenario="patrol", cruise_speed_m_s=3.0, planner="astar"))
@@ -113,7 +125,8 @@ EXPERIMENT = Experiment(
     objective="Fly a waypoint mission past obstacles, and compare three ways of finding the way.",
     concept=(
         "A mission is a list of waypoints: take off, visit each in order, land.",
-        "Straight lines ignore obstacles; a potential field reacts to nearby ones; A* plans around all of them before take-off.",
+        "Straight lines ignore obstacles; a potential field reacts to nearby ones; A* plans around all of them before take-off; "
+        "the lidar planner knows none of them: it senses them with a laser scanner and replans as it goes.",
         "Planned vs flown path shows how well the controller tracks the plan (corners, speed, wind).",
     ),
     params=(

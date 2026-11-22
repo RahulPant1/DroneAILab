@@ -20,10 +20,11 @@ from backend.sim.physics import State
 from backend.sim.runner import RunResult, run_headless
 
 from .follower import Mission, MissionFollower
+from .lidar import SenseFollower
 from .planner import PlanInfo, PlanningError, path_length, plan_route
 from .world import DRONE_RADIUS_M, SAFETY_MARGIN_M, Box, clearance_series
 
-PLANNERS = ("straight", "potential", "astar")
+PLANNERS = ("straight", "potential", "astar", "lidar")
 MAX_WAYPOINTS = 20
 MAX_OBSTACLES = 20
 COORD_LIMIT_M = 100.0
@@ -49,6 +50,13 @@ SCENARIOS: dict[str, dict] = {
         "title": "Box canyon (U-shaped trap)",
         "waypoints": [(0.0, 0.0), (10.0, 0.0)],
         "obstacles": [Box(6.0, 6.5, -2.5, 2.5), Box(3.5, 6.5, 2.0, 2.5), Box(3.5, 6.5, -2.5, -2.0)],
+    },
+    "hidden_walls": {
+        "title": "Hidden walls (sense-and-avoid)",
+        "waypoints": [(0.0, 0.0), (17.0, 0.0)],
+        # Two walls, each with one gap at opposite ends. The second is 9.5 m away, beyond the lidar's 8 m, and
+        # behind the first: a drone that must SEE its obstacles only finds it after getting through the first gap.
+        "obstacles": [Box(4.0, 4.6, -7.0, 4.0), Box(9.5, 10.1, -4.0, 7.0)],
     },
     "patrol": {
         "title": "Square patrol",
@@ -123,11 +131,14 @@ def run_mission(
     validate_mission(mission)
     cfg = config or get_preset("basic")
     try:
-        route, info = plan_route(mission.waypoints, mission.obstacles, planner, mission.cruise_alt_m)
+        # The lidar planner knows nothing before take-off: its first "plan" is the straight line.
+        route, info = plan_route(mission.waypoints, mission.obstacles, "straight" if planner == "lidar" else planner,
+                                 mission.cruise_alt_m)
+        info.planner = planner
     except PlanningError as exc:
         raise MissionError(str(exc)) from None
 
-    follower = MissionFollower(mission, route, planner)
+    follower = SenseFollower(mission, seed) if planner == "lidar" else MissionFollower(mission, route, planner)
     start = State.at(0.0)
     start.pos_m[:2] = mission.waypoints[0]
     r = run_headless(cfg, follower, MAX_MISSION_S, seed, initial_state=start, env=env,
@@ -172,6 +183,13 @@ def run_mission(
             "planning_time_ms": round(info.planning_time_ms, 1),
         }
     )
+    if planner == "lidar":
+        p = follower.perception
+        # Its plan kept changing, so "planned length" and "distance from the plan" have no single meaning here.
+        r.metrics.update({"replans": follower.replans, "brakes": follower.brakes, "lidar_scans": p.scans,
+                          "map_cells": len(p.map.occupied), "planned_length_m": None, "cross_track_rms_m": None,
+                          "cross_track_max_m": None})
+        route = follower.plans[-1]
     r.scenario = {
         "duration_s": float(t[-1]),
         "mission": {
@@ -182,4 +200,8 @@ def run_mission(
         },
         "planned_route": [[round(a, 3), round(b, 3)] for a, b in route],
     }
+    if planner == "lidar":
+        r.scenario["discovered"] = [[round(a, 2), round(b, 2)] for a, b in
+                                    (follower.perception.map.point(c) for c in sorted(follower.perception.map.occupied))]
+        r.scenario["plans"] = [[[round(a, 2), round(b, 2)] for a, b in plan] for plan in follower.plans[:12]]
     return r, info, route

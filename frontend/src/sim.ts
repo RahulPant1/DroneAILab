@@ -35,6 +35,36 @@ export interface SimState {
   race: RaceStatus | null; // set while a rings-race track is loaded
   formation: FormationStatus | null; // set while wingmen are flying with you
   sitl: SitlStatus | null; // the 🛰 ArduPilot panel (real ArduCopter SITL), null until it's used
+  battery: BatteryStatus | null; // null = unlimited power (battery off)
+  lidar: LidarStatus | null; // 📡 the lidar's latest scan (+ its map when it changed), null when off
+}
+
+/** A 360° 2D lidar scan at the drone's height, and the occupancy map it has built. */
+export interface LidarStatus {
+  origin: Vec3; // where the lidar really was when it scanned
+  ranges: number[]; // distance per beam; beam i points at angle i * 360/len (0 = east, anticlockwise)
+  range_m: number; // = no hit
+  map_version: number;
+  cells: number;
+  res_m: number;
+  map?: [number, number][]; // only sent when the map changed
+  replans?: number | null;
+}
+
+/** LiPo battery while flying (🔋). Voltage sags under load; low -> fly home, critical -> land, empty -> motors stop. */
+export interface BatteryStatus {
+  voltage_v: number;
+  cell_v: number;
+  current_a: number;
+  power_w: number;
+  soc_pct: number;
+  used_mah: number;
+  capacity_mah: number;
+  cells: number;
+  time_left_s: number | null; // to the low-battery point, at the current draw
+  status: 'ok' | 'low' | 'critical' | 'empty';
+  drain_speedup: number;
+  failsafe: null | 'rtl' | 'land' | 'empty';
 }
 
 /** Fault injection on real ArduPilot: what we broke, what should happen, what did. */

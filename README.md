@@ -9,7 +9,7 @@
 
 ## Highlights
 
-**1. My own flight stack, from physics up.** 6-DOF rigid-body physics at 500 Hz (NumPy), a cascaded PID controller (position → velocity → tilt → body rate, 250 Hz), simulated noisy IMU/GPS/barometer/compass with a complementary-filter estimator, wind and gusts, a GPS-loss failsafe, waypoint missions with A* and potential-field obstacle avoidance, and multi-drone formation flight with collision avoidance. All in the browser in 3D.
+**1. My own flight stack, from physics up.** 6-DOF rigid-body physics at 500 Hz (NumPy), a cascaded PID controller (position → velocity → tilt → body rate, 250 Hz), simulated noisy IMU/GPS/barometer/compass with a complementary-filter estimator, wind and gusts, a GPS-loss failsafe, a LiPo battery model (voltage sag, less thrust as it drains, battery failsafe), waypoint missions with A* and potential-field obstacle avoidance, **sense-and-avoid with a simulated lidar** (it maps unknown obstacles and replans), multi-drone formation flight, and a **Drone Builder** that turns real-world parts into flight time and flies the result. All in the browser in 3D.
 
 **2. The real ArduPilot, flying next to it.** ArduCopter 4.7.3 built from source and run in SITL (software-in-the-loop: the same flight code that runs on a real flight controller). DroneLab talks to it over MAVLink: take-off, fly-to, mission upload, return-to-launch, and a live comparison of both autopilots doing the same job. QGroundControl can join the same flight.
 
@@ -34,14 +34,15 @@ Full report with a chart per fault: [docs/results/fault-injection.md](docs/resul
 | Area | Where |
 |---|---|
 | Flight dynamics, control (cascaded PID), state estimation | [backend/sim/](backend/sim/) |
-| Path planning (A*, potential fields), multi-agent avoidance | [backend/autonomy/](backend/autonomy/) |
+| Path planning (A*, potential fields), lidar sense-and-avoid with replanning, multi-agent avoidance | [backend/autonomy/](backend/autonomy/) |
+| Battery model, propulsion sizing (momentum theory), flight-time estimation | [backend/sim/battery.py](backend/sim/battery.py), [backend/sim/builder.py](backend/sim/builder.py) |
 | ArduPilot SITL, MAVLink (pymavlink), mission protocol, failsafes | [backend/sitl/](backend/sitl/) |
 | Fault injection and verification against ground truth | [backend/sitl/faults.py](backend/sitl/faults.py), [results](docs/results/fault-injection.md) |
 | Flight-log analysis (DataFlash) + LLM debrief with number checking | [backend/logdoctor/](backend/logdoctor/) |
 | Real-time 3D UI (React, Three.js, WebSocket) | [frontend/src/](frontend/src/) |
 | Local LLM integration with grounding and validation | [backend/ai/](backend/ai/) |
 | CI with hardware-free flight tests | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
-| Teaching material: 14 lessons with self-checks | [docs/learn/](docs/learn/) |
+| Teaching material: 16 lessons with self-checks | [docs/learn/](docs/learn/) |
 
 ---
 
@@ -66,6 +67,8 @@ Click **Take off** (or press T), then hold W/A/S/D or the arrow keys (move), Spa
 - **🏁 Rings race:** 4 tracks, a timer and best times (a game, great for kids).
 - **🛩 Wingmen:** 1–4 drones fly in a V, line or column with you, each on its own autopilot; **🛡 avoid crashes** makes them dodge and break formation to get past obstacles.
 - **Wind** and **📡 sensor noise** (live): a pink ghost shows where the drone *thinks* it is.
+- **📡 Lidar** (live) and the **Lidar planner**: 72 laser beams map obstacles the drone doesn't know about; try the *Hidden walls* course.
+- **🔋 Battery** and **🛠 Build your own drone** (Drone Studio panel): pick frame, motors, props and battery, see weight, thrust-to-weight and flight time, then fly it on its own battery until the low-battery failsafe brings it home.
 - **Lab** tab: seven guided experiments (thrust, mass, attitude, PID tuning, wind, sensor noise, missions) with plots, explanations and "try next" ideas. **History** compares saved runs.
 - **🩺 Logs** tab: the flight-log doctor (simulator logs, or upload a real drone's `.BIN`), with a 🤖 local-AI debrief.
 - **💬 Assistant:** the local AI tutor (needs [Ollama](https://ollama.com) with a Gemma model; the app works without it).
@@ -102,13 +105,13 @@ Delete the folder. ArduPilot and QGroundControl live in its `external/` subfolde
 
 ## Project layout
 ```
-backend/sim/        physics, controller, sensors, estimator, pilot, real-time runner
-backend/autonomy/   missions, planners (A*, potential field), formation flight
+backend/sim/        physics, controller, sensors, estimator, battery, drone builder, pilot, real-time runner
+backend/autonomy/   missions, planners (A*, potential field, lidar sense-and-avoid), formation flight
 backend/sitl/       ArduPilot SITL: launch, MAVLink flight, panel bridge, fault lab, QGroundControl
 backend/ai/         Ollama client, prompts, schema validation, assistant
 backend/logdoctor/  ArduPilot log reader, engineer's checks, LLM debrief
 backend/experiments/ the Lab experiments          backend/games/  rings race
-frontend/src/       React + Three.js UI           docs/learn/     14 lessons
+frontend/src/       React + Three.js UI           docs/learn/     16 lessons
 docs/PRD.md         the spec it was built to      PROGRESS.md     build log, measurements, what didn't work
 ```
 

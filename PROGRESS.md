@@ -449,3 +449,26 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
 - Geofence real test was flaky: peak distance 44.9–45.0 m vs a 45 m limit. Limit now fence + 10 m (braking at
   4 m/s), with the reason in the code.
 - Tests: test_logdoctor.py: 5 offline (synthetic logs, store safety, fake-Ollama debrief) + 1 real (GPS-loss log).
+
+## 📡 Lidar sense-and-avoid, 🔋 battery, 🛠 Drone Builder (2026-11-22, user-approved)
+- Lidar (`backend/autonomy/lidar.py`): 72 beams / 8 m / 10 Hz, slab ray casting vs boxes (vectorised), 2 cm noise,
+  hits mapped at the ESTIMATED pose into a 0.2 m occupancy grid, inflated by drone radius + margin (0.7 m);
+  optimistic A* (unseen = free), straightened by line of sight; SenseFollower replans when the next 4 m is blocked,
+  brakes when a beam within ±35° of travel is closer than radius + 0.45 m, gives up (stuck) after 3 s without a path.
+  New course "hidden_walls" (second wall out of range and occluded). Results: straight crashes, potential stuck,
+  A* 23.9 m / 16.6 s, lidar 25.7 m / 21.8 s with 5 replans and 311 cells. Lidar completes all 5 courses, no
+  collisions (~0.5 s CPU per mission). Live: planner + 📡 toggle; map sent only when its version changes (avg frame
+  2.3 KB, max 9 KB). Lab map plot draws hits (red) and dropped plans (faint).
+- Battery (`backend/sim/battery.py`): LiPo OCV table, exact sag solution, current from shaft power / 0.75 + 4 W
+  avionics, motor top speed x V/(3.85 V x cells). Off by default (all old tests unchanged). Measured: 1 kg / 3S
+  3000 mAh hover 152 W, 12.4 A, ~12 min to low. Failsafe tuning: at 3.5 V/cell (under load ~12 % left) the trip
+  home at 10x drain landed with 0.5 %; 3.6 V/cell -> landed home with 11 %. At 60x/30x drain the failsafe can't
+  get home (also the 3 s wait had to be scaled by the drain speed): demo drain capped at 10x.
+- Builder (`backend/sim/builder.py`): catalogue of 4 frames, 5 motors, 4 props, 2S–6S packs; momentum-theory hover
+  power with figure of merit by prop size (0.45 for 3" .. 0.62 for 15"; a single 0.6 made 5" racers hover 14.5 min,
+  unrealistic); the sim's kQ/kT is set so hover burns exactly that power (verified: sim power = estimate for 5
+  builds). Flight-time estimate matches a simulated hover to the low point within 20 %. Every build flies a 5 m
+  step with ~0.1 m overshoot with the default gains (181 g micro to 3.6 kg heavy-lift).
+- UI: 🛠 Build your own (Studio), 🔋 Battery bar + Telemetry battery panel, 📡 lidar rays + red map in 3D.
+- Tests: +9 battery/builder, +5 lidar, 2 updated for min mass 0.1 kg, phase-4 matrix gains hidden_walls + lidar.
+  226 passed.

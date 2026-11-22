@@ -104,6 +104,9 @@ class QuadcopterPhysics:
         # Extra linear drag on top of the drone's own (N per m/s). 0 = real physics. The live view switches it on
         # in the GPS-loss failsafe as a "training wheels" helper, so the drone doesn't coast as far.
         self.extra_drag_n_s_m = 0.0
+        # Motor top speed relative to its rating. A battery model sets this from its voltage each step (speed is
+        # roughly Kv x volts); 1.0 = no battery model = always the rated speed.
+        self.voltage_scale = 1.0
 
     def motor_speed_command(self, motor_pct: np.ndarray) -> np.ndarray:
         """Convert motor % (0-100) into a target spin speed.
@@ -112,7 +115,7 @@ class QuadcopterPhysics:
         That way "50 %" means half of the max THRUST, which is easier to reason about.
         """
         frac = np.clip(motor_pct, 0.0, 100.0) / 100.0
-        return self.max_speed_rad_s * np.sqrt(frac)
+        return self.max_speed_rad_s * self.voltage_scale * np.sqrt(frac)
 
     def step(self, state: State, motor_pct: np.ndarray, dt_s: float, wind_m_s: np.ndarray | None = None) -> State:
         """Advance the drone by dt seconds (semi-implicit Euler). Updates `state` in place.

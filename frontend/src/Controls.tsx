@@ -154,6 +154,7 @@ export default function Controls({ follow, setFollow, onLearn, onOpenLog }: { fo
       <FormationBar status={status} onLearn={onLearn} />
       <WindBar status={status} onLearn={onLearn} />
       <SensorBar status={status} onLearn={onLearn} />
+      <BatteryBar s={s} offline={offline} onLearn={onLearn} />
       <SitlBar a={s?.sitl} offline={offline} onLearn={onLearn} onOpenLog={onOpenLog} />
     </div>
   );
@@ -195,6 +196,7 @@ const PLANNER_LABELS: Record<string, string> = {
   straight: 'Straight lines (ignores obstacles)',
   potential: 'Potential field (reactive)',
   astar: 'A* (plans ahead)',
+  lidar: 'Lidar: sense & replan (knows no obstacles)',
 };
 
 const PHASE_LABELS: Record<string, string> = { gps: 'waiting for GPS to settle', takeoff: 'taking off', cruise: 'flying the route', land: 'landing' };
@@ -238,7 +240,12 @@ function MissionBar({ s, offline, onLearn }: { s: SimState | null; offline: bool
             </button>
           </>
         )}
+        <label className="inline" title="Show a 360° laser scanner (72 beams, 8 m) and the map it builds while you fly. The lidar planner always uses one.">
+          <input type="checkbox" checked={!!s?.lidar && !m} disabled={offline || !!m} onChange={(e) => sim.send('lidar', { enabled: e.target.checked })} /> 📡 Lidar
+        </label>
+        {s?.lidar && <span className="keys" title="Cells of obstacle the lidar has hit so far">map: {s.lidar.cells} cells{s.lidar.replans != null ? ` · ${s.lidar.replans} replans` : ''}</span>}
         <button className="link" onClick={() => onLearn('09-exp-missions')}>📖 Learn: missions</button>
+        <button className="link" onClick={() => onLearn('15-sense-and-avoid')}>📖 Learn: sense and avoid</button>
         <span className="spacer" />
         {m && (
           <span className="mission-status">
@@ -408,6 +415,37 @@ function SensorBar({ status, onLearn }: { status: string; onLearn: (slug: string
         </span>
       </div>
       {sensors.on && <p className="muted small">Ghost outline = where the drone <i>thinks</i> it is. The controller steers the ghost, not the real drone. On the ground it averages GPS for 5 s before it may take off.</p>}
+    </div>
+  );
+}
+
+/** 🔋 Battery on/off for the current drone (a Drone Builder design brings its own). */
+function BatteryBar({ s, offline, onLearn }: { s: SimState | null; offline: boolean; onLearn: (slug: string) => void }) {
+  const [cfg, setCfg] = useState({ cells: 3, capacity_mah: 3000, drain_speedup: 1 });
+  const on = !!s?.battery;
+  const send = (enabled: boolean, c = cfg) => sim.send('battery', { enabled, ...c });
+  const change = (patch: Partial<typeof cfg>) => {
+    const c = { ...cfg, ...patch };
+    setCfg(c);
+    if (on) send(true, c);
+  };
+  return (
+    <div className="row small battery-row">
+      <label className="inline" title="Fly on a LiPo battery: it drains, its voltage sags under load (less thrust), and the failsafe brings the drone home when it's low">
+        <input type="checkbox" checked={on} disabled={offline} onChange={(e) => send(e.target.checked)} /> 🔋 Battery
+      </label>
+      {on && s?.battery ? (
+        <span className="keys">{s.battery.cells}S {s.battery.capacity_mah} mAh · {s.battery.soc_pct.toFixed(0)} % · {s.battery.voltage_v.toFixed(1)} V{s.battery.drain_speedup > 1 ? ` · drains ${s.battery.drain_speedup}× fast` : ''} (Reset = fresh battery)</span>
+      ) : (
+        <>
+          <select value={cfg.cells} disabled={offline} onChange={(e) => change({ cells: Number(e.target.value) })}>{[2, 3, 4, 6].map((c) => <option key={c} value={c}>{c}S</option>)}</select>
+          <select value={cfg.capacity_mah} disabled={offline} onChange={(e) => change({ capacity_mah: Number(e.target.value) })}>{[1300, 2200, 3000, 5000].map((c) => <option key={c} value={c}>{c} mAh</option>)}</select>
+          <select value={cfg.drain_speedup} disabled={offline} onChange={(e) => change({ drain_speedup: Number(e.target.value) })} title="Drain faster than real life to see the low-battery failsafe sooner">
+            <option value={1}>real time</option><option value={5}>5× faster</option><option value={10}>10× faster</option>
+          </select>
+        </>
+      )}
+      <button className="link" onClick={() => onLearn('16-battery-and-builder')}>📖 Learn: batteries</button>
     </div>
   );
 }

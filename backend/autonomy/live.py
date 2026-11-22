@@ -22,6 +22,7 @@ from backend.sim.runner import RealtimeSim
 from backend.games.race import TRACKS, Race
 
 from .follower import Mission, MissionFollower
+from .lidar import Perception, SenseFollower
 from .formation import SHAPE_NAMES, Formation, LeaderInfo
 from .mission import PLANNERS, SCENARIOS, MissionError, scenario_mission
 from .planner import PlanningError, plan_route
@@ -42,6 +43,9 @@ class MissionSim(RealtimeSim):
         self.race: Race | None = None  # rings race (a game); never loaded together with a course
         self._race_prev_pos = None
         self.formation = Formation()  # wingmen that follow your drone (0 = off); kept across resets
+        self.lidar_on = False  # 📡 show the lidar + its map while you fly (a lidar mission always has one)
+        self.lidar_view: Perception | None = None
+        self._lidar_sent: tuple[int, int] | None = None  # (which map, version) the UI already has
         super().__init__(config, seed)
 
     # ---- course ----
@@ -65,6 +69,7 @@ class MissionSim(RealtimeSim):
             self.race.restart()  # Reset = try the race again
         self._race_prev_pos = None
         super().reset(config, seed)
+        self.lidar_view = Perception(self.seed) if self.lidar_on else None  # Reset = an empty map
         self._spawn_formation()
 
     def _spawn_formation(self, keep_existing: bool = False) -> None:
@@ -86,6 +91,27 @@ class MissionSim(RealtimeSim):
         avoid_txt = "they avoid crashing into each other and into obstacles" if avoid else "NO collision avoidance: watch out"
         return (f"Formation: {count} wingm{'a' if count == 1 else 'e'}n in a {SHAPE_NAMES[shape]}, {spacing_m:.1f} m apart; "
                 f"{avoid_txt}. They take off, fly and land with you.")
+
+    def load_design(self, parts: dict, drain_speedup: float = 1.0) -> tuple[DroneConfig, str]:
+        """Fly a Drone Builder design: its config, on its own battery. Returns (config, message)."""
+        from dataclasses import replace
+
+        from backend.sim.builder import DesignError, design
+
+        try:
+            d = design(parts)
+        except DesignError as exc:
+            raise ValueError(str(exc)) from None
+        bat = replace(d["battery"], drain_speedup=float(drain_speedup))
+        self.reset(d["config"])
+        self.set_battery(True, cfg=bat)
+        r = d["report"]
+        if r["verdict"] == "won't fly":
+            msg = f"{d['config'].name}: T/W {r['thrust_to_weight']:.2f}. Try Take off: it can't lift itself."
+        else:
+            msg = (f"{d['config'].name}: {r['mass_g']} g, T/W {r['thrust_to_weight']:.1f}, about "
+                   f"{r['flight_time_min']:.0f} min of hover. Battery full: take off!")
+        return d["config"], msg
 
     def set_wind(self, speed_m_s, direction_deg, gust_m_s) -> str:
         msg = super().set_wind(speed_m_s, direction_deg, gust_m_s)
@@ -157,12 +183,13 @@ class MissionSim(RealtimeSim):
             raise ValueError(f"Cruise speed must be between {MIN_SPEED_M_S} and {MAX_SPEED_M_S} m/s.")
         self.mission.cruise_speed_m_s = speed
         try:
-            route, _ = plan_route(self.mission.waypoints, self.mission.obstacles, planner, self.mission.cruise_alt_m)
+            route, _ = plan_route(self.mission.waypoints, self.mission.obstacles,
+                                  "straight" if planner == "lidar" else planner, self.mission.cruise_alt_m)
         except (PlanningError, MissionError) as exc:
             raise ValueError(str(exc)) from None
         self.reset()  # back to the start point, clock at 0 (the follower times its phases from t = 0)
         self.route, self.planner = route, planner
-        self.follower = MissionFollower(self.mission, route, planner)
+        self.follower = SenseFollower(self.mission, self.seed) if planner == "lidar" else MissionFollower(self.mission, route, planner)
         self._events_seen = 0
         self.pilot.mode = "mission"
         wait = self.gps_settle_left_s()
@@ -223,8 +250,29 @@ class MissionSim(RealtimeSim):
             self.pilot.message = said[-1]
             sp.armed = False
 
+    def abort_autopilot(self) -> None:
+        if self.follower:
+            self._take_over()
+            self.notices.append("Mission aborted by the battery failsafe.")
+
+    def set_lidar(self, enabled: bool) -> str:
+        self.lidar_on = bool(enabled)
+        self.lidar_view = Perception(self.seed) if self.lidar_on else None
+        if not enabled:
+            return "Lidar off."
+        return ("📡 Lidar on: 72 laser beams sweep a full circle at the drone's height, 10 times a second (8 m range). "
+                "Red dots = its map of what it has hit. Load a course to see it map the obstacles.")
+
+    def perception(self) -> Perception | None:
+        if isinstance(self.follower, SenseFollower):
+            return self.follower.perception
+        return self.lidar_view
+
     def _leader_setpoint(self, dt_s: float) -> Setpoint:
         s = self.state
+        self.check_battery()
+        if self.lidar_view is not None and not isinstance(self.follower, SenseFollower):
+            self.lidar_view.update(s.time_s, s, self.sim.estimate, self.mission.obstacles if self.mission else [])
         if self.race:
             self._update_race(s)
         if self.follower and self.gps_settle_left_s() > 0:
@@ -279,6 +327,8 @@ class MissionSim(RealtimeSim):
             return self.set_formation(args.get("count", 0), args.get("shape", "v"), args.get("spacing_m", 1.5), args.get("avoid", True))
         if cmd == "mission":
             return self.start_mission(str(args.get("planner", "astar")), args.get("cruise_speed_m_s"))
+        if cmd == "lidar":
+            return self.set_lidar(bool(args.get("enabled", False)))
         if self.follower:
             if cmd == "takeoff":
                 return "A mission is flying. Press Hover here or Land to take over."
@@ -295,4 +345,13 @@ class MissionSim(RealtimeSim):
         )  # fmt: skip
         snap["race"] = self.race.status(self.state.time_s) if self.race else None
         snap["formation"] = self.formation.snapshot() if self.formation.count else None
+        p = self.perception()
+        if p is not None:
+            key = (id(p.map), p.map.version)
+            snap["lidar"] = p.snapshot(with_map=key != self._lidar_sent)  # the map only when it changed
+            if snap["lidar"] is not None:
+                snap["lidar"]["replans"] = getattr(self.follower, "replans", None)
+                self._lidar_sent = key
+        else:
+            snap["lidar"] = None
         return snap

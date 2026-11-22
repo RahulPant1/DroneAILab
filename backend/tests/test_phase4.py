@@ -24,11 +24,14 @@ EXPECTED = {
     "slalom": {"straight": False, "potential": False, "astar": True},
     "box_canyon": {"straight": False, "potential": False, "astar": True},
     "patrol": {"straight": True, "potential": True, "astar": True},
+    "hidden_walls": {"straight": False, "potential": False, "astar": True},
 }
+for row in EXPECTED.values():
+    row["lidar"] = True  # sensing its way through: it finishes every course, knowing no obstacles in advance
 
 
 @pytest.mark.parametrize("scenario", list(SCENARIOS))
-@pytest.mark.parametrize("planner", ["straight", "potential", "astar"])
+@pytest.mark.parametrize("planner", ["straight", "potential", "astar", "lidar"])
 def test_who_succeeds_where(scenario, planner):
     m = fly(scenario, planner)
     assert m["completed"] == EXPECTED[scenario][planner]

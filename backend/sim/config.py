@@ -148,7 +148,7 @@ class DroneConfig:
 # ---- Validation limits (min, max). Shared by UI, API and AI suggestions. ----
 
 LIMITS: dict[str, tuple[float, float]] = {
-    "mass_kg": (0.2, 5.0),
+    "mass_kg": (0.1, 5.0),
     "arm_length_m": (0.08, 0.5),
     "motor_max_thrust_n": (0.5, 50.0),
     "motor_max_speed_rad_s": (200.0, 5000.0),
