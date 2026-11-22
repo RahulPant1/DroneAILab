@@ -211,7 +211,7 @@ Plus: save a run, history list, **compare 2 runs on overlaid plots**, and export
 Waypoint missions, planned vs actual path, box obstacles, simple avoidance (potential field or A* on a 2D grid), and mission metrics.
 
 ### Phase 5: Real autopilot software in simulation (ArduPilot SITL), approved by the user 2026-11-22
-Steps 1–4 approved (2026-11-22; step 3 blocked on system libraries, see PROGRESS): build ArduCopter SITL (its built-in physics, no Gazebo) from a pinned stable tag inside `~/DroneAILab/external/ardupilot` (gitignored), and fly it from the command line (MAVProxy, plus a scripted pymavlink flight with a test). Steps 3–4 (QGroundControl, showing SITL in the DroneLab 3D view / `SimBackend`) need a separate go-ahead.
+Steps 1–4 approved and done (2026-11-22; for step 3 the user installed 3 GStreamer/Pulse libraries with apt themselves): build ArduCopter SITL (its built-in physics, no Gazebo) from a pinned stable tag inside `~/DroneAILab/external/ardupilot` (gitignored), and fly it from the command line (MAVProxy, plus a scripted pymavlink flight with a test). Steps 3–4 (QGroundControl, showing SITL in the DroneLab 3D view / `SimBackend`) need a separate go-ahead.
 - Uses the g++ already installed. No sudo/apt: ArduPilot's `install-prereqs-ubuntu.sh` is NOT run. Its Python build/run deps go in the project `.venv`, pinned in `backend/requirements-sitl.txt`.
 - Footprint exception: the ArduPilot source + build is about 2–3 GB, outside the < 1 GB target (user approved). Deleting `external/` removes it.
 - SITL and MAVProxy talk MAVLink over TCP/UDP on 127.0.0.1 only.

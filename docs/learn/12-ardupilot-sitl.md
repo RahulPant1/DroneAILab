@@ -31,6 +31,21 @@ Wait about 30–45 s for `EKF3 IMU0 is using GPS` (like DroneLab's GPS settle, b
 
 Harmless messages you may see: `Failed to load module: No module named 'PIL'` (a picture module we didn't install), and `time moved backwards` if you use `--speedup`.
 
+## A ground station with a map: QGroundControl
+```bash
+./scripts/qgc_setup.sh   # once: downloads QGroundControl 4.4.5 into external/qgc (~550 MB)
+./scripts/qgc.sh         # opens its window on Windows, connected to ArduPilot
+```
+If the 🛰 ArduPilot panel in DroneLab is already running, QGroundControl **joins that same flight**: press buttons in DroneLab and watch QGroundControl's map, or the other way round. Otherwise it starts its own ArduPilot.
+
+Things to try (wait for the top bar to say *Ready To Fly*):
+1. **Fly view**: the drone on a map near Canberra (ArduPilot's test field). Click **Takeoff** in the left toolbar, slide to confirm. Click a spot on the map → **Go to location**.
+2. **Plan view**: click on the map to add waypoints, then **Upload**. Back in Fly view, **Start Mission**. That's exactly what our scripted flight does, with the mouse.
+3. **Vehicle Setup → Parameters**: search `ATC_RAT_RLL_P` or `PSC_NE_POS_P`. These are the PID gains of the real autopilot (look, don't change, until you know why).
+4. The top bar shows GPS satellites, battery, flight mode, and the pre-arm messages ("PreArm: ...").
+
+Notes: we use QGroundControl 4.4.5 because 5.x needs a newer Ubuntu than this WSL has. Its settings live in `external/qgc-home`. We switch off its network auto-connect (it would listen on the whole network) and any serial/USB scanning, and it connects only to 127.0.0.1. The **map pictures are downloaded from the internet** (only the map area, nothing about you); without internet the map is blank but everything else works. The window may show a "Settings" first-run dialog: just click OK.
+
 ## The scripted flight
 ```bash
 .venv/bin/python -m backend.sitl.fly
@@ -70,6 +85,7 @@ Only one ArduPilot runs at a time and every browser tab sees the same one. Stopp
 | "Fly to" box | GUIDED position target (`SET_POSITION_TARGET_LOCAL_NED`) |
 | Mission autopilot | AUTO mode + a mission uploaded item by item |
 | GPS settle before take-off | Pre-arm checks: "GPS: waiting for 3D fix", "EKF not ready" |
+| Fly tab buttons + map | A ground station: MAVProxy (text) or QGroundControl (map) |
 | Estimator | **EKF3**: a much bigger version of the same idea (blend IMU, GPS, baro) |
 | Cascaded PID | Same layers. Parameters like `ATC_RAT_RLL_P` (roll-rate P) and `PSC_NE_POS_P` (horizontal position P). In MAVProxy: `param show ATC_RAT_RLL_*` |
 | ENU: x east, y north, z **up** | NED: x north, y east, z **down**; headings 0° = north, clockwise |

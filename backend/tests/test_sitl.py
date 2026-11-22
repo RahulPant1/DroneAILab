@@ -152,3 +152,28 @@ def test_real_arducopter_in_the_panel_takes_off_flies_to_compares_and_lands():
         assert b.status()["local_m"][:2] == pytest.approx([0, 0], abs=0.5)
     finally:
         b.stop()
+
+
+# ---- Step 3: QGroundControl settings (no QGroundControl needed) -------------------------------------
+
+def test_qgc_settings_turn_off_auto_connect_and_keep_one_local_tcp_link(tmp_path):
+    from backend.sitl.qgc import LINK_NAME, configure
+
+    ini = tmp_path / "QGroundControl.ini"
+    ini.write_text(
+        "[General]\nSettingsVersion=9\n\n"
+        "[AutoConnectSettings]\nautoConnectUDP=false\n\n"  # a wrong section an earlier version wrote
+        "[LinkConfigurations]\ncount=2\nLink0\\name=old\nLink1\\name=radio\n\n"
+        "[LinkManager]\nautoConnectUDP=true\nsomethingElse=7\n"
+    )
+    configure(5762, ini)
+    configure(5762, ini)  # running twice changes nothing
+    text = ini.read_text()
+    assert "[AutoConnectSettings]" not in text and "SettingsVersion=9" in text and "somethingElse=7" in text
+    manager = text.split("[LinkManager]")[1].split("[")[0]
+    for key in ("autoConnectUDP", "autoConnectZeroConf", "autoConnectPixhawk", "autoConnectSiKRadio"):
+        assert f"{key}=false" in manager  # no 0.0.0.0 listeners, no serial/USB scanning
+    links = text.split("[LinkConfigurations]")[1].split("[")[0]
+    assert "count=1" in links and f"Link0\\name={LINK_NAME}" in links and "Link1" not in links
+    assert "Link0\\host=127.0.0.1" in links and "Link0\\port=5762" in links and "Link0\\type=2" in links
+    assert text.count("[LinkConfigurations]") == 1 and "EnableAutoUpload=false" in text

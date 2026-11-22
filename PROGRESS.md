@@ -386,10 +386,18 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   stops SITL; stopping uvicorn alone stops it (atexit). NOT verified in a browser.
 - Tests: +6 offline, +1 opt-in real (186 passed, 2 skipped; with DRONELAB_SITL=1 all 11 SITL tests pass, twice).
 
-## Phase 5 step 3: QGroundControl (blocked, user decision)
+## Phase 5 step 3: QGroundControl (done 2026-11-22)
 - 5.1.5 AppImage (sha256 verified) needs glibc 2.38 / GLIBCXX_3.4.32: Ubuntu 22.04 has 2.35. Deleted.
-- 4.4.5 AppImage (glibc 2.35 OK; no published checksum for that old release) is in `external/qgc/` (unpacked, run
-  the binary directly: its AppRun copies an icon into ~/.icons). Missing system libs: libgstgl-1.0, libgstvideo-1.0
-  (gstreamer plugins-base/gl) and libpulse-mainloop-glib. Options: user runs `sudo apt install ...`; or download the
-  .debs and unpack them into external/ (no system change, needs OK); or QGroundControl on Windows -> tcp
-  127.0.0.1:5762 (mirrored networking; untested).
+- 4.4.5 AppImage (glibc 2.35 OK; GitHub publishes no checksum for that old release) unpacked in `external/qgc/`;
+  we run the binary directly (its AppRun/start script copies an icon into ~/.icons). It needed libgstgl-1.0,
+  libgstvideo-1.0 and libpulse-mainloop-glib: the user ran `sudo apt install libgstreamer-gl1.0-0
+  libgstreamer-plugins-base1.0-0 libpulse-mainloop-glib0` (we never run apt).
+- `backend/sitl/qgc.py` / `scripts/qgc.sh`: HOME (+XDG dirs) = external/qgc-home, so nothing lands in ~/.config or
+  ~/Documents (checked). Before each start: [LinkManager] autoConnectUDP/ZeroConf/Pixhawk/SiKRadio/LibrePilot/RTKGPS
+  = false (first guess `[AutoConnectSettings]` was ignored: QGC still listened on 0.0.0.0:14550 and :5353), one TCP
+  link to 127.0.0.1 (auto-connect at start), no log auto-upload. Verified: no listening sockets; link ESTAB.
+- Join mode: if 127.0.0.1:5762 is listening (the 🛰 panel's SITL), QGC uses it (139 KB of MAVLink received in 35 s
+  while DroneLab's bridge held 5760); otherwise it starts its own SITL on 5760. QGC uses ~290 MB RAM.
+- Outbound internet: map tiles over HTTP (~40 connections to a CDN) + one HTTPS connection. Documented in lesson
+  12; map is blank offline. Not verified visually (the window opens on the Windows desktop).
+- Test: +1 (settings writer). `scripts/qgc_setup.sh` re-downloads/unpacks and prints the apt line if libs are missing.
