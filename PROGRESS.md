@@ -548,3 +548,18 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   Square loop 30° with these limits: 4/4, 6.34 s (DroneLab 6.31 s), 0.10 m mean / 0.26 m worst (defaults: 1/4, 2.3 / 5.2 m).
 - Tests: test_agile.py (maths, cross-check, controllers, exp 11, live autopilot) + test_sitl.py (limits/mask unit test,
   opt-in real offboard flight: passed locally). CI installs requirements-dev.txt.
+
+## 🧠 Companion computer, simulation half (2026-11-23, user-approved: "go ahead with #3 sim half")
+- `backend/companion/service.py`: a separate process on SITL's SERIAL2 (tcp 5763) with DroneLab's own detect() and
+  lidar scan(); sends LANDING_TARGET + OBSTACLE_DISTANCE. Only SimCamera / SimLidar read SITL truth (SIM_STATE).
+- Results (ArduCopter 4.7 SITL, truth): told to land 1.8 m off the pad: 1.82 m without, 0.06 m with (310
+  LANDING_TARGET). AUTO mission through a 10 m wall: through it without; round it with (closest 2.9 m, but 70 m path /
+  35 s: ~20 s of left-right hesitation in front of the wall before BendyRuler took the west end).
+- What went wrong first: (1) noise on "no hit" beams made 8 m into 7.99 m everywhere = a ring of walls, the drone
+  danced near home; noise now on hits only. (2) Companion heartbeats (sysid 1, comp 191) are forwarded to the GCS link
+  and `Flight` read them as "disarmed" (and pymavlink's target_component is 0), so it now accepts component 1 only.
+  (3) ArduPilot moved HOME on re-arming; `keep_first_home`. (4) A 2.5 m GPS offset = PLND_XY_DIST_MAX: ignored; used
+  1.8 m. (5) With PRX1_TYPE=2 it refuses to arm without lidar data, so "without the companion" = stock params on a
+  fresh SITL. (6) At the default 10 m/s WP speed an 8 m lidar is too short to react; the avoid mission uses 3 m/s.
+- Parked for later discussion (not approved): docs/discuss-later.md (real telemetry + bench QA, firmware hardening /
+  certification, companion hardware half, training / B2B product).

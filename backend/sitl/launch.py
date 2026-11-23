@@ -68,6 +68,11 @@ class Sitl:
     def url(self) -> str:
         return f"tcp:127.0.0.1:{self.port}"
 
+    @property
+    def companion_url(self) -> str:
+        """SERIAL2 (only when started with companion_port=True): where a companion-computer process connects."""
+        return f"tcp:127.0.0.1:{self.port + 3}"
+
     def stop(self) -> None:
         if self.proc.poll() is None:
             if self.own_group:
@@ -99,12 +104,15 @@ FRAMES = {  # SITL model -> extra default parameters on top of copter.parm (as A
 
 
 def start(speedup: float = 1.0, wipe: bool = True, instance: int | None = None, timeout_s: float = 30.0,
-          own_group: bool = True, frame: str = "quad") -> Sitl:
+          own_group: bool = True, frame: str = "quad", extra_params: dict[str, float] | None = None,
+          companion_port: bool = False) -> Sitl:
     """Launch ArduCopter SITL (a "+" quad on its built-in physics) and wait until it accepts a ground station.
 
     speedup: run the simulation faster than real time (the autopilot doesn't notice).
     wipe: start from the default parameters instead of whatever the last run saved.
     frame: "quad" (4 motors) or "hexa" (6 motors: can survive one motor failing).
+    extra_params: parameters set at boot (for ones that need a reboot, e.g. PRX1_TYPE, PLND_TYPE, OA_TYPE).
+    companion_port: also open SERIAL2 as MAVLink on TCP port 5763 + 10N, for a companion-computer process.
     own_group: True = its own process group (Ctrl+C in a terminal doesn't hit it; we stop it ourselves).
       False = stay in the caller's group, so whatever stops the DroneLab server (./run.sh) stops SITL too.
     """
@@ -117,15 +125,22 @@ def start(speedup: float = 1.0, wipe: bool = True, instance: int | None = None, 
     prune_logs()
     log_path = RUN_DIR / f"arducopter-{n}.log"
     log = open(log_path, "w")
+    defaults = [DEFAULTS, *(DEFAULTS.parent / f for f in FRAMES[frame])]
+    if extra_params:
+        extra = RUN_DIR / f"extra-{n}.parm"
+        extra.write_text("".join(f"{k} {v}\n" for k, v in extra_params.items()))
+        defaults.append(extra)
     cmd = [
         str(BINARY),
         "--model", frame,
         "--speedup", str(speedup),
         "--home", ",".join(str(v) for v in HOME),
-        "--defaults", ",".join(str(p) for p in [DEFAULTS, *(DEFAULTS.parent / f for f in FRAMES[frame])]),
+        "--defaults", ",".join(str(p) for p in defaults),
         "-I", str(n),
         "--serial0", "tcp:0:wait",  # SERIAL0 = the ground-station link (port 5760 + 10N)
     ]
+    if companion_port:
+        cmd += ["--serial2", "tcp:3"]  # SERIAL2 = the companion computer's link (port 5763 + 10N, MAVLink2)
     if wipe:
         cmd.append("--wipe")
     proc = subprocess.Popen(cmd, cwd=RUN_DIR, stdout=log, stderr=subprocess.STDOUT, start_new_session=own_group)

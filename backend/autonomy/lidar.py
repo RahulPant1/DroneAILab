@@ -44,13 +44,16 @@ ANGLES = np.linspace(0.0, 2 * math.pi, BEAMS, endpoint=False)
 COS, SIN = np.cos(ANGLES), np.sin(ANGLES)
 
 
-def scan(boxes: list[Box], x: float, y: float, z: float, range_m: float = RANGE_M) -> np.ndarray:
-    """Distance along each beam (world-frame angles ANGLES) to the first box tall enough to be hit at height z.
-    range_m = nothing within range. Ray vs box uses the 'slab' method, for all beams at once."""
-    ranges = np.full(BEAMS, range_m)
+def scan(boxes: list[Box], x: float, y: float, z: float, range_m: float = RANGE_M,
+         angles_rad: np.ndarray | None = None) -> np.ndarray:
+    """Distance along each beam (world-frame angles ANGLES, or `angles_rad`: 0 = east, counter-clockwise) to the
+    first box tall enough to be hit at height z. range_m = nothing within range. Ray vs box uses the 'slab' method,
+    for all beams at once."""
+    cos, sin = (COS, SIN) if angles_rad is None else (np.cos(angles_rad), np.sin(angles_rad))
+    ranges = np.full(len(cos), range_m)
     with np.errstate(divide="ignore", invalid="ignore"):
-        inv_x = np.where(COS != 0, 1.0 / COS, np.inf)
-        inv_y = np.where(SIN != 0, 1.0 / SIN, np.inf)
+        inv_x = np.where(cos != 0, 1.0 / cos, np.inf)
+        inv_y = np.where(sin != 0, 1.0 / sin, np.inf)
         for b in boxes:
             if b.height_m <= z:
                 continue  # it flies over this one

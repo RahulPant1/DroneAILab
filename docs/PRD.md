@@ -225,7 +225,9 @@ task list from names on the map; code routes and safety-checks it; the user pres
 (NDVI) maps stitched from the survey photos, patch detection and a local-AI farmer's report. Then (2026-11-23) agile
 flight: minimum-snap trajectories, feedforward + a geometric controller, and offboard control of ArduPilot SITL in
 GUIDED mode (approved: "go ahead with #1 and #5"). Optional test-only dependency: minsnap-trajectories (MIT) as an
-independent cross-check of the solver.
+independent cross-check of the solver. Then (2026-11-23) the companion-computer split in simulation (perception as a
+separate process sending LANDING_TARGET / OBSTACLE_DISTANCE to ArduPilot SITL; approved: "go ahead with #3 sim half").
+Real hardware, firmware hardening and commercial ideas are parked in docs/discuss-later.md (not approved).
 
 ### Roadmap (do NOT install or scaffold)
 PX4 SITL + Gazebo + MAVSDK, ROS 2, camera/vision, RL, NVIDIA Warp acceleration.

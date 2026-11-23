@@ -129,6 +129,9 @@ class Flight:
         self.truth: dict | None = None  # SITL only: where the drone REALLY is (SIMSTATE), vs pos = what the EKF believes
         self.truth3d: dict | None = None  # SITL only: full 3D truth from SIM_STATE (lat/lon/alt AMSL, velocity, tilt)
         self.home_alt_amsl_m: float | None = None
+        # ArduPilot moves HOME to wherever it is armed. Flights that land and take off again somewhere else set this,
+        # so "metres from home" keeps meaning the first home (which is also the EKF origin local targets use).
+        self.keep_first_home = False
         self.params: dict[str, float] = {}  # from PARAM_VALUE (only the ones we set or asked for)
         self.mode_log: list[tuple[float, str]] = []  # (autopilot time, mode) each time the mode changes
         self.text_log: list[tuple[float, str]] = []  # (autopilot time, STATUSTEXT)
@@ -168,10 +171,13 @@ class Flight:
                 self.report.max_alt_m = max(self.report.max_alt_m, self.pos["rel_alt_m"])
             elif kind == "ATTITUDE":
                 self.att = (msg.roll, msg.pitch, msg.yaw)
-            elif kind == "HOME_POSITION":
+            elif kind == "HOME_POSITION" and not (self.keep_first_home and self.home is not None):
                 self.home = (msg.latitude / 1e7, msg.longitude / 1e7)
                 self.home_alt_amsl_m = msg.altitude / 1000.0
-            elif kind == "HEARTBEAT" and msg.get_srcSystem() == self.m.target_system and msg.type != mav.MAV_TYPE_GCS:
+            elif (kind == "HEARTBEAT" and msg.get_srcSystem() == self.m.target_system
+                  and msg.get_srcComponent() == mav.MAV_COMP_ID_AUTOPILOT1 and msg.type != mav.MAV_TYPE_GCS):
+                # Only the autopilot's own heartbeat: a companion computer shares its system id (component 191) and
+                # ArduPilot forwards its heartbeats to us too; they say "not armed".
                 self.armed = bool(msg.base_mode & mav.MAV_MODE_FLAG_SAFETY_ARMED)
                 self.mode = self.m.flightmode
                 if not self.mode_log or self.mode_log[-1][1] != self.mode:

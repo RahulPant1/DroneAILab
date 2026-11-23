@@ -59,10 +59,10 @@ jobs:
           key: ardupilot-${{ runner.os }}-${{ hashFiles('scripts/sitl_setup.sh', 'scripts/patches/*.patch') }}
       - name: Download + build ArduCopter 4.7.3 for SITL (cached after the first run)
         run: ./scripts/sitl_setup.sh
-      - name: Fly it (take-off, fly-to, mission, RTL, the DroneLab panel, offboard trajectory, fault injection, log doctor)
+      - name: Fly it (take-off, fly-to, mission, RTL, the DroneLab panel, offboard trajectory, companion computer, fault injection, log doctor)
         env:
           DRONELAB_SITL: "1"
-        run: .venv/bin/pytest -q backend/tests/test_sitl.py backend/tests/test_faults.py backend/tests/test_logdoctor.py
+        run: .venv/bin/pytest -q backend/tests/test_sitl.py backend/tests/test_companion.py backend/tests/test_faults.py backend/tests/test_logdoctor.py
       - name: Keep the SITL logs if something failed
         if: failure()
         uses: actions/upload-artifact@v4
