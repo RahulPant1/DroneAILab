@@ -21,6 +21,8 @@ from pathlib import Path
 
 import numpy as np
 
+from . import spectrum
+
 # ---- ArduPilot code tables (from AP_Logger.h, ArduPilot 4.7) ---------------------------------------
 
 ERR_SUBSYSTEMS = {
@@ -79,7 +81,7 @@ BOOT_NOISE = re.compile(r"^(ArduCopter V|[0-9a-f]{32}$|Param space used|RC Proto
 # ---- reading --------------------------------------------------------------------------------------
 
 WANTED = ("MODE", "MSG", "ERR", "EV", "VIBE", "XKF4", "GPS", "ATT", "CTUN", "PSCN", "PSCE", "BAT", "RCOU",
-          "POS", "SIM", "PARM")
+          "POS", "SIM", "PARM", "ISBH", "ISBD")
 
 
 def read_log(path: str | Path) -> dict[str, list[dict]]:
@@ -199,6 +201,27 @@ def analyze_messages(L: dict[str, list[dict]], name: str = "log") -> dict:
         check("vibration", "Vibration", st, f"peak {peak:.1f} m/s², {clip} clipping events", "< 30 m/s², no clipping",
               "How much the flight controller is shaken. High vibration confuses the accelerometers: altitude and "
               "position hold get worse, and clipping (the sensor maxed out) can make the EKF lose track.")
+    # 1b. Gyro noise spectrum (only with the batch sampler on)
+    flying_t = [(a, b) for a, b in armed_spans]
+    spec = spectrum.analyze(L, flying=lambda t: any(a + 5.0 <= t <= b - 2.0 for a, b in flying_t)) if L["ISBH"] else None
+    if spec:
+        post, pre = spec.get("post_peak"), spec.get("pre_peak")
+        have_post = spec.get("post_rms_deg_s") is not None  # filtered samples logged (INS_LOG_BAT_OPT 2 or 4)
+        seen_peak = post if have_post else pre
+        left = seen_peak["amp_deg_s"] if seen_peak else 0.0  # without post-filter data: judge the raw peak
+        st = BAD if left > 3.0 else WARN if left > 0.5 else OK
+        where = "after the filters" if have_post else "before the filters"
+        value = (f"motor-noise peak at {seen_peak['freq_hz']:.0f} Hz, {seen_peak['amp_deg_s']:.2f} deg/s {where}"
+                 if seen_peak else f"no motor-noise peak {where}")
+        if pre and post:
+            value += f" (before the filters: {pre['amp_deg_s']:.2f} deg/s)"
+        rec = spec.get("recommendation")
+        advice = (" Suggested notch: " + ", ".join(f"{k} = {v}" for k, v in rec.items()) + "." if rec else
+                  " A harmonic notch is on." if spec["notch_on"] else "")
+        check("gyro_noise", "Gyro noise (FFT of the batch sampler)", st, value, "< 0.5 deg/s left at the motor frequency",
+              "Motors and props shake the flight controller at the rotor's spin frequency; the gyro feels it as fake "
+              f"rotation and the motors buzz. Low-pass filter: INS_GYRO_FILTER = {spec['gyro_filter_hz']:g} Hz (lower "
+              "removes more noise but delays the gyro). A harmonic notch removes just the motor band." + advice)
     # 2. EKF health
     xk = L["XKF4"]
     if xk:
@@ -330,6 +353,8 @@ def analyze_messages(L: dict[str, list[dict]], name: str = "log") -> dict:
     if xk:
         charts["ekf"] = {"labels": ["velocity", "position", "height", "compass"],
                          "data": _thin(_col(xk, "t"), *(_col(xk, k) for k in ("SV", "SP", "SH", "SM")))}
+    if spec:
+        charts["gyro_spectrum"] = spec["chart"]
     if truth_chart:
         charts["truth"] = {"labels": ["belief vs truth (m)"], "data": truth_chart}
 

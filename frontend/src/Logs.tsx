@@ -36,7 +36,12 @@ interface Analysis {
   checks: Check[];
   timeline: { t: number; kind: string; text: string }[];
   timeline_total: number;
-  charts: Record<string, { labels: string[]; data: (number | null)[][] }>;
+  charts: Record<string, LogChartData>;
+}
+interface LogChartData {
+  labels: string[];
+  data: (number | null)[][];
+  x_label?: string; // default: time in the log
 }
 interface Debrief {
   answer: string;
@@ -52,6 +57,7 @@ const CHART_TITLES: Record<string, string> = {
   motors: 'Motor outputs (PWM µs, 1000 = off, 2000 = full)',
   ekf: 'EKF test ratios (over 1 = reading rejected)',
   truth: 'Belief vs truth: EKF position error (m, simulator only)',
+  gyro_spectrum: 'Gyro noise spectrum (dB re 1 deg/s): the motor peak, before and after the filters',
 };
 const COLORS = ['#4cc9f0', '#ff8c42', '#06d6a0', '#c77dff', '#ffd166', '#ef476f', '#8ecae6', '#f4a261'];
 
@@ -216,7 +222,7 @@ export default function Logs({ initialId }: { initialId: string | null }) {
   );
 }
 
-function LogChart({ title, chart }: { title: string; chart: { labels: string[]; data: (number | null)[][] } }) {
+function LogChart({ title, chart }: { title: string; chart: LogChartData }) {
   const wrap = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = wrap.current;
@@ -227,7 +233,7 @@ function LogChart({ title, chart }: { title: string; chart: { labels: string[]; 
         height: 170,
         scales: { x: { time: false } },
         axes: [
-          { label: 'time in log (s)', stroke: '#9aa5b8', grid: { stroke: '#2c3648' } },
+          { label: chart.x_label ?? 'time in log (s)', stroke: '#9aa5b8', grid: { stroke: '#2c3648' } },
           { stroke: '#9aa5b8', grid: { stroke: '#2c3648' } },
         ],
         series: [{ label: 't' }, ...chart.labels.map((l, i) => ({ label: l, stroke: COLORS[i % COLORS.length], width: 1.5, spanGaps: true }))],

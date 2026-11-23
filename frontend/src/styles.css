@@ -395,3 +395,7 @@ ul.timeline li.mode { color: #4cc9f0; }
 .crop-report { margin-top: 8px; }
 .crop-report pre.answer { white-space: pre-wrap; font: inherit; margin: 0 0 4px; background: none; border: none; padding: 0; }
 @media (max-width: 800px) { .fieldmap-grid { grid-template-columns: 1fr; } }
+
+/* EKF health line (sensor bar) */
+.ekf-line { margin: 2px 0; }
+.ekf-reject { color: var(--bad); font-weight: 600; }

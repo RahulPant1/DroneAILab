@@ -40,6 +40,8 @@ def alpha_beta_gains(alpha: float) -> tuple[float, float]:
 
 
 class Estimator:
+    kind = "complementary"
+
     def __init__(self, cfg: SensorConfig, initial: State, physics_dt_s: float):
         self.cfg = cfg
         self.est = initial.copy()  # starts out knowing where it is (as if just calibrated)
@@ -150,3 +152,12 @@ class Estimator:
         error = math.remainder(compass_rad - yaw_est, 2 * math.pi)
         turn = COMPASS_CORRECTION_PER_S * error * self.baro_dt_s  # compass runs at the baro rate
         e.quat = quat_normalize(quat_multiply(quat_from_euler(0.0, 0.0, turn), e.quat))
+
+
+def make_estimator(cfg: SensorConfig, initial: State, physics_dt_s: float):
+    """The estimator chosen in the sensor settings: this complementary filter, or the Kalman filter (ekf.py)."""
+    if cfg.estimator == "ekf":
+        from .ekf import EKF
+
+        return EKF(cfg, initial, physics_dt_s)
+    return Estimator(cfg, initial, physics_dt_s)

@@ -21,7 +21,8 @@ from .battery import LOW_CELL_V, Battery, BatteryConfig, validate_battery
 from .config import ConfigError, DroneConfig, require_valid
 from .control import CascadedController, Setpoint
 from .environment import EnvConfig, Wind, validate_env
-from .estimator import Estimator
+from .ekf import GPS_RETRY_S
+from .estimator import make_estimator
 from .metrics import altitude_step_metrics, horizontal_drift_m, mean_motor_pct
 from .physics import QuadcopterPhysics, State
 from .pilot import FAILSAFE_TILT_RAD, Pilot, Sticks
@@ -97,7 +98,7 @@ class LightweightSim:
         self.wind = Wind(self.env, np.random.default_rng(wind_seed), PHYSICS_DT_S) if self.env.active else None
         if self.sensor_cfg.enabled:
             self.sensors = Sensors(self.sensor_cfg, np.random.default_rng(sensor_seed))
-            self.estimator = Estimator(self.sensor_cfg, self.state, PHYSICS_DT_S)
+            self.estimator = make_estimator(self.sensor_cfg, self.state, PHYSICS_DT_S)
         else:
             self.sensors = None
             self.estimator = None
@@ -135,7 +136,7 @@ class LightweightSim:
         self.sensor_cfg = cfg
         if cfg.enabled:
             self.sensors = Sensors(cfg, np.random.default_rng([self.seed, self.step_count, 1]))
-            self.estimator = Estimator(cfg, self.state, PHYSICS_DT_S)
+            self.estimator = make_estimator(cfg, self.state, PHYSICS_DT_S)
             # Switched on in the air: it can't stand still to average GPS, so skip the settle.
             self.estimator.settled = not (self.ground_align and self.state.on_ground)
         else:
@@ -170,6 +171,7 @@ class LightweightSim:
 
 
 BATT_FAILSAFE_AFTER_S = 3.0  # battery below a limit this long (sim time) -> failsafe
+GPS_GLITCH_M = 5.0  # live 'GPS glitch' toggle: how far the fixes jump
 GPS_FAILSAFE_AFTER_S = 1.0  # GPS lost this long -> stop trusting the position estimate
 # Extra air drag in the failsafe (N per m/s; the drone's own is 0.10). Not real physics: a helper so the drone
 # doesn't coast so far when you steer it without GPS. Speed now halves in about 1.4 s instead of ~7 s.
@@ -193,6 +195,7 @@ class RealtimeSim:
         self.env = EnvConfig()  # wind; it stays the same across resets until changed
         self.sensor_cfg = SensorConfig()  # off = perfect sensors; also kept across resets
         self.gps_outage = False  # no GPS fixes (only matters with sensor noise on); kept across resets
+        self.gps_glitch = False  # GPS positions jump GLITCH_M east (a bad fix); kept across resets
         self.gps_failsafe = True  # on GPS loss: hold level + altitude instead of trusting a drifting position
         self.failsafe_drag_n_s_m = FAILSAFE_EXTRA_DRAG_N_S_M  # extra air drag while the failsafe is active
         self.failsafe_tilt_rad = FAILSAFE_TILT_RAD  # how far a full W/A/S/D press tilts the drone in failsafe
@@ -221,6 +224,7 @@ class RealtimeSim:
     def _apply_gps(self) -> None:
         if self.sim.sensors:
             self.sim.sensors.gps_ok = not self.gps_outage
+            self.sim.sensors.gps_glitch_m = np.array([GPS_GLITCH_M, 0.0]) if self.gps_glitch else np.zeros(2)
 
     def start_state(self) -> State | None:
         """Where the drone sits after a reset (None = on the ground at the origin)."""
@@ -375,7 +379,10 @@ class RealtimeSim:
         if cmd == "wind":
             return self.set_wind(args.get("speed_m_s", 0.0), args.get("direction_deg", 0.0), args.get("gust_m_s", 0.0))
         if cmd == "sensors":
-            return self.set_sensors(bool(args.get("enabled", False)), args.get("noise_scale", 1.0), bool(args.get("gps_noise", True)))
+            return self.set_sensors(bool(args.get("enabled", False)), args.get("noise_scale", 1.0), bool(args.get("gps_noise", True)),
+                                    str(args.get("estimator", "complementary")))
+        if cmd == "gps_glitch":
+            return self.set_gps_glitch(bool(args.get("on", False)))
         if cmd == "gps":
             drag, tilt = args.get("drag_n_s_m"), args.get("tilt_deg")
             return self.set_gps(bool(args.get("outage", False)), bool(args.get("failsafe", True)),
@@ -443,11 +450,12 @@ class RealtimeSim:
         """Pre-arm check: seconds until the GPS position has settled (0 with perfect sensors)."""
         return self.sim.estimator.settle_left_s if self.sim.estimator else 0.0
 
-    def set_sensors(self, enabled: bool, noise_scale=1.0, gps_noise: bool = True) -> str:
+    def set_sensors(self, enabled: bool, noise_scale=1.0, gps_noise: bool = True, estimator: str = "complementary") -> str:
         """Noisy sensors + estimator (the controller flies on its ESTIMATE), or perfect sensors (it sees the truth).
         The buttons' autopilot and collision checks always use the true position."""
         try:
-            cfg = SensorConfig(enabled=enabled, noise_scale=float(noise_scale), gps_noise_scale=1.0 if gps_noise else 0.0)
+            cfg = SensorConfig(enabled=enabled, noise_scale=float(noise_scale), gps_noise_scale=1.0 if gps_noise else 0.0,
+                               estimator=estimator)
         except (TypeError, ValueError):
             raise ValueError("noise_scale must be a number.") from None
         self.sim.set_sensors(cfg)  # raises ConfigError (a ValueError) if out of range
@@ -459,7 +467,21 @@ class RealtimeSim:
         wait = self.gps_settle_left_s()
         settle = f" GPS settling for {wait:.0f} s before take-off." if wait > 0 else ""
         gps = "" if gps_noise else " GPS is perfect (no GPS noise)."
-        return f"Sensor noise on ({cfg.noise_scale:g}× typical): the controller now flies on its estimate.{gps}{settle}"
+        how = " Estimator: Kalman filter (EKF)." if estimator == "ekf" else ""
+        return f"Sensor noise on ({cfg.noise_scale:g}× typical): the controller now flies on its estimate.{how}{gps}{settle}"
+
+    def set_gps_glitch(self, on: bool) -> str:
+        """Make every GPS fix jump GPS_GLITCH_M east (or stop). A Kalman filter's innovation gate should reject it."""
+        self.gps_glitch = on
+        self._apply_gps()
+        if not on:
+            return "GPS glitch over: fixes are right again."
+        if not self.sim.estimator:
+            return f"GPS glitch on ({GPS_GLITCH_M:.0f} m east), but sensor noise is off: the controller sees the truth."
+        if self.sim.estimator.kind == "ekf":
+            return (f"GPS glitch: fixes jump {GPS_GLITCH_M:.0f} m east. The EKF's innovation gate should reject them "
+                    f"(after {GPS_RETRY_S:.0f} s it gives in and resets to the GPS).")
+        return f"GPS glitch: fixes jump {GPS_GLITCH_M:.0f} m east. The complementary filter follows them, and so does the drone."
 
     def snapshot(self) -> dict:
         """A compact, JSON-friendly picture of 'right now' for the UI (SI units, radians)."""
@@ -492,6 +514,8 @@ class RealtimeSim:
             "failsafe_drag_n_s_m": self.failsafe_drag_n_s_m,  # extra air drag in failsafe (0 = real physics)
             "failsafe_tilt_deg": round(math.degrees(self.failsafe_tilt_rad), 1),  # a full W/A/S/D press in failsafe
             "battery": ({**self.sim.battery.snapshot(), "failsafe": self._batt_fs} if self.sim.battery else None),
+            "gps_glitch": self.gps_glitch,
+            "ekf": self.sim.estimator.health() if self.sim.estimator is not None and self.sim.estimator.kind == "ekf" else None,
             "setpoint": {
                 "x_m": round(sp.x_m, 3),
                 "y_m": round(sp.y_m, 3),
@@ -544,12 +568,16 @@ def run_headless(
     stop_when: Callable[[], bool] | None = None,
     battery: BatteryConfig | None = None,
     telemetry_every_n_steps: int = TELEMETRY_EVERY_N_STEPS,
+    before_step: Callable[["LightweightSim"], None] | None = None,
+    extra_channels: Callable[["LightweightSim"], dict[str, float]] | None = None,
 ) -> RunResult:
     """Run a whole flight as fast as possible and return a RunResult.
 
     `setpoint` is either fixed, a function of time (seconds) returning a Setpoint, or an object with
     `setpoint_for(estimate, time_s, truth)` (e.g. a mission follower: it navigates on the estimate).
     `stop_when` (checked at 50 Hz) can end the run early, e.g. once a mission has landed.
+    `before_step(sim)` runs before every physics step (e.g. to inject a GPS glitch); `extra_channels(sim)` returns
+    more telemetry values to record (same names every time).
     Telemetry is recorded at 50 Hz; wind and estimate channels are added when those are on.
     """
     if not 0 < duration_s <= MAX_DURATION_S:
@@ -568,6 +596,8 @@ def run_headless(
         channels += WIND_CHANNELS
     if sim.estimator:
         channels += ESTIMATE_CHANNELS
+    if extra_channels is not None:
+        channels += list(extra_channels(sim))
     tel: dict[str, list[float]] = {name: [] for name in channels}
     events: list[dict] = []
     was_on_ground = state.on_ground
@@ -593,6 +623,8 @@ def run_headless(
             est = sim.estimator.state
             readings = sim.sensors.readings
             values += [*est.pos_m, est.vel_m_s[2], *est.euler_rad(), readings.baro_m, *readings.gps_xy_m]
+        if extra_channels is not None:
+            values += list(extra_channels(sim).values())
         for name, value in zip(channels, values):
             tel[name].append(float(value))
 
@@ -600,6 +632,8 @@ def run_headless(
     record(setpoint_at(0.0))
     for i in range(1, n_steps + 1):
         sp = setpoint_at(state.time_s)
+        if before_step is not None:
+            before_step(sim)
         sim.step(sp)
 
         if was_on_ground and not state.on_ground:

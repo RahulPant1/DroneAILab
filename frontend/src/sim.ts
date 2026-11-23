@@ -6,6 +6,17 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 export type Vec3 = [number, number, number];
 export type Quat = [number, number, number, number]; // [w, x, y, z], body -> world (ENU)
 
+/** The EKF's view of itself (backend/sim/ekf.py health()). */
+export interface EkfHealth {
+  sigma: { pos_m: Vec3; vel_m_s: Vec3; att_rad: Vec3; gyro_bias_rad_s: Vec3 }; // 1 standard deviation
+  gyro_bias_rad_s: Vec3; // the bias it has learnt
+  test_ratio: Record<'gps_pos' | 'gps_vel' | 'baro' | 'compass', number>; // > 1 = reading rejected
+  rejected: Record<string, number>;
+  accepted: Record<string, number>;
+  gps_resets: number;
+  vel_resets: number;
+}
+
 export interface SimState {
   type: 'state';
   t_s: number;
@@ -27,6 +38,8 @@ export interface SimState {
   gps_settle_left_s: number; // > 0: GPS still settling on the ground, take-off not allowed yet
   gps_outage: boolean; // no GPS fixes (only with sensor noise on)
   gps_lost_s: number; // how long the outage has lasted
+  gps_glitch: boolean; // GPS fixes jump 5 m east (a bad fix)
+  ekf: EkfHealth | null; // flying on the Kalman filter: its own uncertainty and how it judged each sensor
   failsafe: boolean; // GPS-loss failsafe active: holding level + altitude, NOT position
   failsafe_drag_n_s_m: number; // extra air drag while in failsafe (0 = real physics: it keeps coasting)
   failsafe_tilt_deg: number; // how far a full W/A/S/D press tilts the drone in failsafe

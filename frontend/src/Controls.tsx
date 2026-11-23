@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import FieldMap from './FieldMap';
 import MissionPlanner from './MissionPlanner';
-import { api, compassName, sim, useSimUi, useThrottledState, type SimState } from './sim';
+import { api, compassName, sim, useSimUi, useThrottledState, type EkfHealth, type SimState } from './sim';
 import SitlBar from './SitlPanel';
 
 // Held keys move the drone. Uses e.code (the physical key), so it works on any keyboard layout
@@ -161,7 +161,7 @@ export default function Controls({ follow, setFollow, onLearn, onOpenLog }: { fo
       <MissionBar s={s} offline={offline} onLearn={onLearn} />
       <FormationBar status={status} onLearn={onLearn} />
       <WindBar status={status} onLearn={onLearn} />
-      <SensorBar status={status} onLearn={onLearn} />
+      <SensorBar s={s} status={status} onLearn={onLearn} />
       <BatteryBar s={s} offline={offline} onLearn={onLearn} />
       <SitlBar a={s?.sitl} offline={offline} onLearn={onLearn} onOpenLog={onOpenLog} />
     </div>
@@ -434,18 +434,21 @@ function WindBar({ status, onLearn }: { status: string; onLearn: (slug: string) 
 
 /** Noisy sensors on/off. With them on, the controller flies on its ESTIMATE (the ghost drone in 3D).
  *  Second row: GPS outage and the GPS-loss failsafe, with the failsafe's own settings grouped together. */
-function SensorBar({ status, onLearn }: { status: string; onLearn: (slug: string) => void }) {
-  const [sensors, setSensors] = useState({ on: false, level: 1, gps: true, outage: false, failsafe: true, drag: 0.4, tilt: 8 });
+function SensorBar({ s, status, onLearn }: { s: SimState | null; status: string; onLearn: (slug: string) => void }) {
+  const [sensors, setSensors] = useState({ on: false, level: 1, gps: true, outage: false, failsafe: true, drag: 0.4, tilt: 8, ekf: false, glitch: false });
   const change = (patch: Partial<typeof sensors>) => {
     const v = { ...sensors, ...patch };
     setSensors(v);
-    if (v.on !== sensors.on || v.level !== sensors.level || v.gps !== sensors.gps)
-      sim.send('sensors', { enabled: v.on, noise_scale: v.level, gps_noise: v.gps });
+    if (v.on !== sensors.on || v.level !== sensors.level || v.gps !== sensors.gps || v.ekf !== sensors.ekf)
+      sim.send('sensors', { enabled: v.on, noise_scale: v.level, gps_noise: v.gps, estimator: v.ekf ? 'ekf' : 'complementary' });
+    if (v.glitch !== sensors.glitch) sim.send('gps_glitch', { on: v.glitch });
     if (v.outage !== sensors.outage || v.failsafe !== sensors.failsafe || v.on !== sensors.on || v.drag !== sensors.drag || v.tilt !== sensors.tilt)
       sim.send('gps', { outage: v.outage, failsafe: v.failsafe, drag_n_s_m: v.drag, tilt_deg: v.tilt });
   };
   useEffect(() => {
-    if (status === 'open' && sensors.on) sim.send('sensors', { enabled: true, noise_scale: sensors.level, gps_noise: sensors.gps });
+    if (status === 'open' && sensors.on)
+      sim.send('sensors', { enabled: true, noise_scale: sensors.level, gps_noise: sensors.gps, estimator: sensors.ekf ? 'ekf' : 'complementary' });
+    if (status === 'open' && sensors.glitch) sim.send('gps_glitch', { on: true });
     if (status === 'open' && (sensors.outage || sensors.drag !== 0.4 || sensors.tilt !== 8))
       sim.send('gps', { outage: sensors.outage, failsafe: sensors.failsafe, drag_n_s_m: sensors.drag, tilt_deg: sensors.tilt });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -468,11 +471,22 @@ function SensorBar({ status, onLearn }: { status: string; onLearn: (slug: string
         <label className="inline" title="Untick for a perfect GPS while the other sensors (gyro, accelerometer, altimeter, compass) stay noisy. Shows how much of the drift comes from the GPS.">
           <input type="checkbox" checked={sensors.gps} disabled={gpsOff} onChange={(e) => change({ gps: e.target.checked })} /> 🛰 GPS noise
         </label>
+        <label className="inline" title="Which estimator turns the noisy readings into a state. Complementary = our simple filter with fixed trust gains. Kalman (EKF) = what ArduPilot and PX4 use: it tracks its own uncertainty, learns the gyro bias and rejects readings that disagree too much.">
+          filter
+          <select value={sensors.ekf ? 'ekf' : 'complementary'} disabled={gpsOff} onChange={(e) => change({ ekf: e.target.value === 'ekf' })}>
+            <option value="complementary">Complementary</option>
+            <option value="ekf">Kalman (EKF)</option>
+          </select>
+        </label>
         <button className="link" onClick={() => onLearn('08-exp-sensor-noise')}>📖 Learn: sensors, GPS and failsafe</button>
+        <button className="link" onClick={() => onLearn('24-kalman-filter')}>📖 Learn: Kalman filter</button>
       </div>
       <div className="row small">
         <label className="inline" title="No GPS fixes at all (jamming, indoors, under a bridge). Position then comes from the motion sensors only, and drifts away fast.">
           <input type="checkbox" checked={sensors.outage} disabled={gpsOff} onChange={(e) => change({ outage: e.target.checked })} /> 📵 GPS outage
+        </label>
+        <label className="inline" title="Every GPS fix jumps 5 m east (multipath, a bad satellite). The complementary filter follows it, so the drone flies 5 m west. The EKF's innovation gate rejects it, for up to 10 s.">
+          <input type="checkbox" checked={sensors.glitch} disabled={gpsOff} onChange={(e) => change({ glitch: e.target.checked })} /> ⚡ GPS glitch
         </label>
         <span className={`failsafe-group ${fsOff ? 'is-off' : ''}`}>
           <label className="inline" title="On GPS loss: after 1 s, stop trusting the drifting position. Hold level and altitude instead (missions are aborted). Untick to see what happens if the drone keeps trusting it.">
@@ -497,8 +511,26 @@ function SensorBar({ status, onLearn }: { status: string; onLearn: (slug: string
               : 'Failsafe: 1 s after GPS is lost it holds level + height, and W/A/S/D tilt the drone.'}
         </span>
       </div>
+      {sensors.on && s?.ekf && <EkfLine h={s.ekf} />}
       {sensors.on && <p className="muted small">Ghost outline = where the drone <i>thinks</i> it is. The controller steers the ghost, not the real drone. On the ground it averages GPS for 5 s before it may take off.</p>}
     </div>
+  );
+}
+
+/** One line of EKF health: its own uncertainty, the gyro bias it learnt, and the GPS gate (like ArduPilot's XKF4). */
+function EkfLine({ h }: { h: EkfHealth }) {
+  const pos = Math.hypot(h.sigma.pos_m[0], h.sigma.pos_m[1]);
+  const ratio = h.test_ratio.gps_pos;
+  const deg = 180 / Math.PI;
+  return (
+    <p className="small ekf-line">
+      🧮 EKF: thinks it's within <b>±{(2 * pos).toFixed(2)} m</b> (2σ) · tilt ±{(2 * Math.max(h.sigma.att_rad[0], h.sigma.att_rad[1]) * deg).toFixed(1)}° ·
+      gyro bias learnt {(h.gyro_bias_rad_s[0] * deg).toFixed(2)}°/s ·{' '}
+      <span className={ratio > 1 ? 'ekf-reject' : ''} title="GPS innovation squared over (5 sigma) squared. Above 1 = the fix is rejected (ArduPilot logs the same as XKF4.SP).">
+        GPS test {ratio.toFixed(2)}{ratio > 1 ? ' ✋ rejected' : ''}
+      </span>{' '}
+      · rejected {h.rejected.gps_pos ?? 0} fixes{h.gps_resets + h.vel_resets > 0 ? `, ${h.gps_resets + h.vel_resets} reset(s)` : ''}
+    </p>
   );
 }
 

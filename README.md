@@ -47,7 +47,11 @@ Full report with a chart per fault: [docs/results/fault-injection.md](docs/resul
 
 **Companion computer:** DroneLab's camera and lidar perception also runs as a **separate process** on ArduPilot's second MAVLink port (like a Jetson or Raspberry Pi), sending `LANDING_TARGET` and `OBSTACLE_DISTANCE`. ArduPilot's own precision landing then landed **0.06 m** from the pad instead of 1.82 m, and its BendyRuler planner went **round** a wall it otherwise flew straight through ([results](docs/results/companion.md)).
 
-Found along the way: ArduPilot's GUIDED input shaper has a 5 m/s³ jerk limit (`PSC_NE_JERK`), and a plan above it diverges by metres. And our simple estimator's accelerometer tilt correction is fooled in long banked turns (real autopilots fuse GPS velocity).
+Found along the way: ArduPilot's GUIDED input shaper has a 5 m/s³ jerk limit (`PSC_NE_JERK`), and a plan above it diverges by metres. And our simple estimator's accelerometer tilt correction is fooled in long banked turns, which led to the Kalman filter below.
+
+**A Kalman filter (EKF), checked against ArduPilot's EKF3 on the same sensor data.** DroneLab's new 12-state error-state EKF fuses GPS velocity, learns the gyro bias and rejects outliers with EKF3's 5-sigma innovation gates. Same flight, same noise (Lab experiment 12): the figure eight goes from 6/8 to **8/8 rings**, and a 5 m GPS glitch moves the drone **0.3 m instead of 8.9 m**. Then real ArduCopter was flown with `LOG_REPLAY = 1` and its raw IMU/GPS/baro/compass inputs were fed through our filter ([results](docs/results/ekf-compare.md)). Both rejected the glitch. A sudden gyro bias showed where EKF3's extra machinery pays: it never got lost, while ours did with the same slow tuning.
+
+**Motor vibration and the notch filter.** ArduPilot SITL shakes the gyro at each rotor's spin rate. DroneLab's log doctor runs an FFT on the batch-sampler data, finds the peak (192 Hz) and recommends a harmonic notch. Flown again: 80 Hz low-pass + notch leaves **0.12 deg/s** of motor noise with **3.1 ms** of gyro delay, against 0.28 deg/s and 12 ms for ArduPilot's default 20 Hz low-pass ([results](docs/results/vibration.md)).
 
 **7. Tested like flight software.** On every push, GitHub Actions runs the test suite, builds the web app, **compiles ArduCopter and flies it**: a full mission, the DroneLab panel, an offboard trajectory, and all 11 fault scenarios.
 
@@ -58,6 +62,8 @@ Found along the way: ArduPilot's GUIDED input shaper has a 5 m/s³ jerk limit (`
 |---|---|
 | Flight dynamics, control (cascaded PID, geometric SE(3) with feedforward), state estimation | [backend/sim/](backend/sim/) |
 | Minimum-snap trajectory generation (gates, time allocation, limit fitting) | [backend/autonomy/trajectory.py](backend/autonomy/trajectory.py), [agile.py](backend/autonomy/agile.py) |
+| State estimation: error-state EKF, innovation gates, replay of ArduPilot's EKF3 inputs | [backend/sim/ekf.py](backend/sim/ekf.py), [backend/sitl/ekf_replay.py](backend/sitl/ekf_replay.py), [results](docs/results/ekf-compare.md) |
+| Vibration analysis (FFT of batch-sampled gyro), filter delay vs noise, notch recommendation | [backend/logdoctor/spectrum.py](backend/logdoctor/spectrum.py), [backend/sitl/vibration.py](backend/sitl/vibration.py), [results](docs/results/vibration.md) |
 | Companion-computer split (perception process -> LANDING_TARGET / OBSTACLE_DISTANCE -> ArduPilot) | [backend/companion/](backend/companion/), [results](docs/results/companion.md) |
 | Offboard control of ArduPilot (GUIDED, SET_POSITION_TARGET_LOCAL_NED) | [backend/sitl/offboard.py](backend/sitl/offboard.py), [results](docs/results/agile-compare.md) |
 | Path planning (A*, potential fields), lidar sense-and-avoid with replanning, multi-agent avoidance | [backend/autonomy/](backend/autonomy/) |
@@ -71,7 +77,7 @@ Found along the way: ArduPilot's GUIDED input shaper has a 5 m/s³ jerk limit (`
 | Real-time 3D UI (React, Three.js, WebSocket) | [frontend/src/](frontend/src/) |
 | Local LLM integration with grounding and validation | [backend/ai/](backend/ai/) |
 | CI with hardware-free flight tests | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
-| Teaching material: 23 lessons with self-checks | [docs/learn/](docs/learn/) |
+| Teaching material: 25 lessons with self-checks | [docs/learn/](docs/learn/) |
 
 ---
 
@@ -112,18 +118,20 @@ Click **Take off** (or press T), then hold W/A/S/D or the arrow keys (move), Spa
 .venv/bin/python -m backend.sitl.plan_flight --write   # the same field survey on DroneLab and ArduPilot -> docs/results/
 .venv/bin/python -m backend.sitl.offboard --write      # stream a minimum-snap trajectory to ArduPilot (GUIDED) -> docs/results/
 .venv/bin/python -m backend.sitl.companion_flight --write   # perception as a companion process: precision landing + avoidance
+.venv/bin/python -m backend.sitl.ekf_replay --write         # our EKF vs ArduPilot's EKF3 on the same logged sensor data
+.venv/bin/python -m backend.sitl.vibration --write          # motor vibration: FFT, notch recommendation, three filter setups
 ```
 In the app: **Fly** tab → **🛰 ArduPilot** → Start. The real autopilot flies an orange drone next to yours (take-off, fly-to, square mission, return home), **📈 Compare** plots the same "fly 10 m north" on both autopilots, **🧪 Fault injection** runs any scenario live, and the 🧭 Mission planner's **Fly on ArduPilot too** uploads a farm plan to it as an AUTO mission.
 
 Map ground station: `./scripts/qgc_setup.sh` once (QGroundControl 4.4.5, ~550 MB in `external/`; it needs `sudo apt install libgstreamer-gl1.0-0 libgstreamer-plugins-base1.0-0 libpulse-mainloop-glib0`), then `./scripts/qgc.sh`. If the 🛰 panel is running, QGroundControl joins the same flight.
 
-Lessons: [12 · ArduPilot SITL](docs/learn/12-ardupilot-sitl.md), [13 · Fault injection](docs/learn/13-fault-injection.md), [14 · Flight logs](docs/learn/14-flight-logs.md), [17 · Surveys](docs/learn/17-survey.md), [18 · Precision landing](docs/learn/18-precision-landing.md), [19 · AI mission planner](docs/learn/19-ai-mission-planner.md), [20 · Crop-health maps](docs/learn/20-crop-health.md), [21 · Agile flight](docs/learn/21-trajectories.md), [22 · Offboard control + open-source to learn from](docs/learn/22-offboard-ardupilot.md), [23 · Companion computer](docs/learn/23-companion-computer.md). Ideas for real hardware, waiting for a decision: [docs/discuss-later.md](docs/discuss-later.md). Analyse a log from the terminal: `.venv/bin/python -m backend.logdoctor.analyze path/to/log.BIN`.
+Lessons: [12 · ArduPilot SITL](docs/learn/12-ardupilot-sitl.md), [13 · Fault injection](docs/learn/13-fault-injection.md), [14 · Flight logs](docs/learn/14-flight-logs.md), [17 · Surveys](docs/learn/17-survey.md), [18 · Precision landing](docs/learn/18-precision-landing.md), [19 · AI mission planner](docs/learn/19-ai-mission-planner.md), [20 · Crop-health maps](docs/learn/20-crop-health.md), [21 · Agile flight](docs/learn/21-trajectories.md), [22 · Offboard control + open-source to learn from](docs/learn/22-offboard-ardupilot.md), [23 · Companion computer](docs/learn/23-companion-computer.md), [24 · Kalman filter](docs/learn/24-kalman-filter.md), [25 · Vibration and filters](docs/learn/25-vibration-and-filters.md). Ideas for real hardware, waiting for a decision: [docs/discuss-later.md](docs/discuss-later.md). Analyse a log from the terminal: `.venv/bin/python -m backend.logdoctor.analyze path/to/log.BIN`.
 
 ## Tests
 ```bash
 .venv/bin/pytest                                                  # ~280 tests, ~5 min, no ArduPilot needed
 uv pip install --python .venv/bin/python -r backend/requirements-dev.txt   # optional: the min-snap cross-check
-DRONELAB_SITL=1 .venv/bin/pytest -q backend/tests/test_sitl.py backend/tests/test_companion.py backend/tests/test_faults.py backend/tests/test_logdoctor.py   # real ArduCopter flights
+DRONELAB_SITL=1 .venv/bin/pytest -q backend/tests/test_sitl.py backend/tests/test_companion.py backend/tests/test_ekf.py backend/tests/test_vibration.py backend/tests/test_faults.py backend/tests/test_logdoctor.py   # real ArduCopter flights
 (cd frontend && npm run build)                                    # type-check + build
 ```
 
@@ -145,7 +153,7 @@ backend/sitl/       ArduPilot SITL: launch, MAVLink flight, panel bridge, offboa
 backend/ai/         Ollama client, prompts, schema validation, assistant, AI mission planner
 backend/logdoctor/  ArduPilot log reader, engineer's checks, LLM debrief
 backend/experiments/ the Lab experiments          backend/games/  rings race
-frontend/src/       React + Three.js UI           docs/learn/     23 lessons
+frontend/src/       React + Three.js UI           docs/learn/     25 lessons
 backend/companion/  companion-computer process (camera + lidar perception -> MAVLink)
 docs/PRD.md         the spec it was built to      PROGRESS.md     build log, measurements, what didn't work
 ```

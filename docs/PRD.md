@@ -227,6 +227,8 @@ flight: minimum-snap trajectories, feedforward + a geometric controller, and off
 GUIDED mode (approved: "go ahead with #1 and #5"). Optional test-only dependency: minsnap-trajectories (MIT) as an
 independent cross-check of the solver. Then (2026-11-23) the companion-computer split in simulation (perception as a
 separate process sending LANDING_TARGET / OBSTACLE_DISTANCE to ArduPilot SITL; approved: "go ahead with #3 sim half").
+Then (2026-11-23) a Kalman filter (error-state EKF, experiment 12, replayed on ArduPilot EKF3's logged inputs) and
+motor vibration / notch-filter analysis in the log doctor (approved: "go ahead with #1 EKF and then #2").
 Real hardware, firmware hardening and commercial ideas are parked in docs/discuss-later.md (not approved).
 
 ### Roadmap (do NOT install or scaffold)

@@ -7,7 +7,8 @@ A real drone never knows its true position or tilt. It only has sensors, each im
                            At rest it reads 9.81 m/s² straight UP, which shows which way is up.
   altimeter/baro  (50 Hz): height, quite noisy (± tens of cm).
   compass         (50 Hz): heading (yaw), a few degrees of noise.
-  position/GPS    (10 Hz): horizontal position, noisy (± tens of cm) and slow.
+  position/GPS    (10 Hz): horizontal position, noisy (± tens of cm) and slow; plus its velocity (Doppler,
+                           ± 0.1 m/s), which only the Kalman filter (ekf.py) uses.
 
 All noise comes from the run's random generator, so the same seed gives the same noise.
 """
@@ -34,6 +35,7 @@ ACCEL_NOISE_M_S2 = 0.3
 BARO_NOISE_M = 0.15
 COMPASS_NOISE_RAD = math.radians(2.0)
 GPS_NOISE_M = 0.3
+GPS_VEL_NOISE_M_S = 0.1  # GPS velocity comes from the Doppler shift: much better than differencing positions
 GPS_DRIFT_TAU_S = 60.0  # how slowly the GPS error wanders (a real receiver's error changes over a minute or so)
 GPS_DRIFT_SMOOTH_S = 10.0  # ...and it changes smoothly, not in jumps
 
@@ -46,6 +48,7 @@ SENSOR_LIMITS = {
     "tilt_correction": (0.0, 5.0),
     "gps_drift_m": (0.0, 5.0),
 }
+ESTIMATORS = {"complementary": "Complementary filter (fixed trust gains)", "ekf": "Kalman filter (EKF, like ArduPilot)"}
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,8 @@ class SensorConfig:
     # Slowly wandering GPS error (1 standard deviation, m), on top of the jitter. Real consumer GPS is often 1-2 m
     # off for a minute at a time (atmosphere, satellite geometry, reflections); averaging can't remove it. 0 = off.
     gps_drift_m: float = 0.0
+    # Which estimator turns the readings into a state: 'complementary' (estimator.py) or 'ekf' (ekf.py).
+    estimator: str = "complementary"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -75,6 +80,8 @@ def validate_sensors(s: SensorConfig) -> list[str]:
         v = getattr(s, name)
         if not isinstance(v, (int, float)) or not math.isfinite(v) or not lo <= v <= hi:
             problems.append(f"sensors.{name} = {v!r} is outside the allowed range {lo}–{hi}.")
+    if s.estimator not in ESTIMATORS:
+        problems.append(f"sensors.estimator = {s.estimator!r}: choose one of {', '.join(ESTIMATORS)}.")
     return problems
 
 
@@ -87,6 +94,7 @@ class Readings:
     baro_m: float = 0.0
     compass_rad: float = 0.0
     gps_xy_m: np.ndarray = field(default_factory=lambda: np.zeros(2))
+    gps_vel_m_s: np.ndarray = field(default_factory=lambda: np.zeros(3))  # world ENU
     new_imu: bool = False
     new_baro: bool = False
     new_compass: bool = False
@@ -107,6 +115,10 @@ class Sensors:
         self.readings = Readings()
         self.step_count = 0
         self.gps_ok = True  # False = GPS outage: no fixes arrive (live view toggle)
+        self.gps_glitch_m = np.zeros(2)  # added to GPS positions (a glitch: multipath, a bad satellite). Set from outside.
+        self.gps_vel_sigma = GPS_VEL_NOISE_M_S * k * cfg.gps_noise_scale
+        # GPS velocity noise has its own random stream, so the other sensors' noise is exactly what it always was.
+        self._vel_rng = rng.spawn(1)[0]
         # GPS drift: a random walk that is pulled back toward 0 (time constant GPS_DRIFT_TAU_S), so it stays around
         # gps_drift_m in size, then smoothed (GPS_DRIFT_SMOOTH_S) so it wanders gently instead of jumping.
         self.gps_drift_sigma = cfg.gps_drift_m * cfg.noise_scale
@@ -140,5 +152,6 @@ class Sensors:
                 keep = math.exp(-dt / GPS_DRIFT_TAU_S)
                 self._gps_walk_m = keep * self._gps_walk_m + self.gps_drift_sigma * math.sqrt(1 - keep * keep) * self.rng.standard_normal(2)
                 self.gps_bias_m += (self._gps_walk_m - self.gps_bias_m) * dt / GPS_DRIFT_SMOOTH_S
-            r.gps_xy_m = truth.pos_m[:2] + self.gps_bias_m + self.gps_sigma * self.rng.standard_normal(2)
+            r.gps_xy_m = truth.pos_m[:2] + self.gps_bias_m + self.gps_sigma * self.rng.standard_normal(2) + self.gps_glitch_m
+            r.gps_vel_m_s = truth.vel_m_s + self.gps_vel_sigma * self._vel_rng.standard_normal(3)
         return r

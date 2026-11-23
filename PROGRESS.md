@@ -563,3 +563,25 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   fresh SITL. (6) At the default 10 m/s WP speed an 8 m lidar is too short to react; the avoid mission uses 3 m/s.
 - Parked for later discussion (not approved): docs/discuss-later.md (real telemetry + bench QA, firmware hardening /
   certification, companion hardware half, training / B2B product).
+
+## 🧮 Kalman filter + vibration (2026-11-23, user-approved: "go ahead with #1 EKF and then #2")
+- `backend/sim/ekf.py`: error-state EKF (12 states), GPS velocity added to the sensors (own random stream: every
+  other reading is unchanged, so old runs are identical). Experiment 12 (seed 0): figure eight 30° complementary 6/8
+  rings, tilt error 2.6° -> EKF 8/8, 0.3°. 5 m GPS glitch 5 s: complementary drone 8.9 m off, EKF 0.27 m (rejected
+  5.0 s). 3°/s gyro bias: complementary 13.4° tilt error, EKF learnt 2.99°/s. 10 s outage in wind: both drift (EKF
+  3.4 m, complementary 4.0 m), EKF's ±2σ 7.5 m. Long glitch (15 s): reset after 10 s, then the correct fixes are
+  rejected for another 10 s (drone 5.1 m off): documented, one GPS can't tell.
+- ArduPilot replay (`backend/sitl/ekf_replay.py`, docs/results/ekf-compare.md): LOG_REPLAY inputs through our EKF.
+  First attempt diverged by hundreds of metres: SITL's first GPS messages (before a fix) are ~144 km off, and after the
+  sudden bias the filter was too sure of itself, rejected all GPS and dead-reckoned. Fixes: start after EKF3's origin;
+  "lost" rule (GPS vel rejected 5 s -> reset, widen P). Measured: both rejected the glitch 5.0 s; lap: ours 0.07 m,
+  EKF3 0.42 m (SITL GPS has no horizontal noise: not a fair win); sudden 2°/s bias: EKF3 0.93 m, never lost; ours
+  lost (up to 23-27 m) with slow bias tuning (5e-5 EKF3-like, 2e-4 default), 0.23 m with fast (1e-3). Fast tuning
+  makes the sim outage worse (10 s: 6.0 m vs 3.4 m), so the default stays 2e-4.
+- Vibration (`backend/logdoctor/spectrum.py`, `backend/sitl/vibration.py`, docs/results/vibration.md): SITL motor
+  vibration, batch sampler pre+post filter, FFT peak 192 Hz (52 dB over floor), notch recommendation. lpf20: 0.28
+  deg/s left, 12.0 ms delay at 10 Hz; lpf80: 4.34, 2.8 ms; lpf80 + notch: 0.12, 3.1 ms. Attitude tracking in a 10 m
+  dash the same for all (~1.1° RMS): default PIDs don't use the saved delay (no retune done). First notch model
+  (cookbook peaking cut) gave 12.7° lag at 10 Hz, wrong: rebuilt with bandwidth-set poles (1.3° added).
+- Live: filter select (Complementary / Kalman) + ⚡ GPS glitch + 🧮 EKF health line; Logs: gyro spectrum chart. UI not
+  checked in a browser (frontend build passes).

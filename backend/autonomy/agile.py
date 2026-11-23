@@ -210,8 +210,8 @@ class TrackFollower:
 
 def run_track(track_id: str, method: str, speed_m_s: float = 12.0, config: DroneConfig | None = None,
               env: EnvConfig | None = None, sensors: SensorConfig | None = None, seed: int = 0,
-              tilt_deg: float = 35.0) -> RunResult:
-    """Fly one track headless (from a hover at its start) and measure the lap."""
+              tilt_deg: float = 35.0, extra_channels=None) -> RunResult:
+    """Fly one track headless (from a hover at its start) and measure the lap. `extra_channels`: see run_headless."""
     cfg = config or get_preset("basic")
     plan = plan_track(track_id, method, speed_m_s, tilt_deg=tilt_deg)
     follower = TrackFollower(plan, method)
@@ -224,7 +224,8 @@ def run_track(track_id: str, method: str, speed_m_s: float = 12.0, config: Drone
         expected = float(follower._cum[-1]) / follower.speed_m_s * 1.6 + 5.0
     duration = min(SETTLE_S + expected + HOLD_AFTER_S + 6.0, 300.0)
     r = run_headless(cfg, follower, duration, seed=seed, initial_state=init, run_type="agile", env=env,
-                     sensors=sensors, stop_when=lambda: follower.done)
+                     sensors=sensors, stop_when=lambda: follower.done,
+                     extra_channels=extra_channels)
     add_tracking_channels(r, follower)
     r.metrics.update(track_metrics(r, follower))
     r.scenario = {"track": track_id, "method": method, "speed_m_s": speed_m_s, "plan": plan.to_dict(),

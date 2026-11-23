@@ -15,6 +15,7 @@ CONDITIONS = {
     "windy": ("Gusty 5 m/s crosswind", EnvConfig(wind_speed_m_s=5.0, wind_direction_deg=90.0, gust_std_m_s=1.0), None),
     "sensors": ("Real sensors (our simple filter)", None, SensorConfig(enabled=True)),
     "sensors_gyro": ("Real sensors, gyro-only tilt", None, SensorConfig(enabled=True, tilt_correction=0.0)),
+    "sensors_ekf": ("Real sensors, Kalman filter (EKF)", None, SensorConfig(enabled=True, estimator="ekf")),
 }
 
 
@@ -93,6 +94,10 @@ def summarise(p: dict, r: RunResult) -> list[str]:
             "Gyro-only tilt: no accelerometer correction, so turns don't fool the estimate. It works here because this "
             "gyro has no bias and the lap is short. A real autopilot (ArduPilot's EKF3) fuses GPS velocity to keep the "
             "tilt right during aggressive flight.")
+    if p["conditions"] == "sensors_ekf":
+        lines.append(
+            "Kalman filter: it fuses GPS velocity, so a tilt error shows up as a velocity disagreement and gets "
+            "corrected, even in long banked turns. Experiment 12 compares it with the simple filter side by side.")
     return lines
 
 
@@ -111,7 +116,7 @@ def suggestions(p: dict, r: RunResult) -> list[dict]:
     if p["conditions"] == "calm":
         out.append(try_next("Real sensors: the accelerometer is fooled in turns.", conditions="sensors"))
     elif p["conditions"] == "sensors":
-        out.append(try_next("Gyro-only tilt: stop trusting the accelerometer in turns.", conditions="sensors_gyro"))
+        out.append(try_next("The Kalman filter (EKF): fuse GPS velocity instead.", conditions="sensors_ekf"))
     else:
         out.append(try_next("A gusty crosswind the plan doesn't know about.", conditions="windy"))
     if p["track"] != "figure_eight":
