@@ -21,6 +21,9 @@ from backend.sim.runner import RealtimeSim
 
 from backend.games.race import TRACKS, Race
 
+from .agile import METHOD_NAMES as AGILE_NAMES
+from .agile import METHODS as AGILE_METHODS
+from .agile import TrackFollower, TrackPlan, plan_track
 from .follower import Mission, MissionFollower
 from .lidar import Perception, SenseFollower
 from .plan import CompiledPlan, PlanError, PlanFollower, compile_plan, make_lander
@@ -66,6 +69,10 @@ class MissionSim(RealtimeSim):
         self.cropmap_busy = False
         self._cropmaps_version = 0
         self._cropmaps_sent = 0
+        self.agile_plan: TrackPlan | None = None  # ✈ race autopilot: the planned trajectory (kept to draw after the lap)
+        self.agile: TrackFollower | None = None
+        self.agile_method = "geometric"
+        self.agile_phase: str | None = None  # "climb" (to the start point) | "fly" | None = off
         super().__init__(config, seed)
 
     # ---- course ----
@@ -89,6 +96,7 @@ class MissionSim(RealtimeSim):
             self.race.restart()  # Reset = try the race again
         self._race_prev_pos = None
         self.prec_lander = None
+        self.agile, self.agile_phase = None, None
         self._camera_img, self._camera_next_s, self._camera_sent_s = None, 0.0, -1.0
         self._photos_sent = -1
         self._in_no_fly = None
@@ -166,6 +174,7 @@ class MissionSim(RealtimeSim):
         if track_id is not None and track_id not in TRACKS:
             raise ValueError(f"Unknown track '{track_id}'. Choose one of: {', '.join(TRACKS)}.")
         self.race = Race(track_id) if track_id else None
+        self.agile_plan = None
         if track_id:
             self.course_id, self.mission = None, None  # a race replaces a course
         self.reset()
@@ -175,13 +184,81 @@ class MissionSim(RealtimeSim):
         return f"Race: {self.race.track['title']}. {self.race.track['tip']} The clock starts at take-off.{best}"
 
     def race_info(self) -> dict | None:
-        return self.race.info() if self.race else None
+        if not self.race:
+            return None
+        info = self.race.info()
+        if self.agile_plan is not None:
+            info["autopilot"] = {"method": self.agile_method, "path": self.agile_plan.to_dict()["path"]}
+        return info
+
+    # ---- ✈ race autopilot: a minimum-snap trajectory through the rings (autonomy/agile.py) ----
+
+    def start_agile(self, method: str, tilt_deg: float) -> str:
+        if not self.race:
+            raise ValueError("Load a race track first: the autopilot plans a trajectory through its rings.")
+        if method not in AGILE_METHODS:
+            raise ValueError(f"Unknown method '{method}'. Choose one of: {', '.join(AGILE_METHODS)}.")
+        tilt = float(min(45.0, max(10.0, tilt_deg)))
+        if self.gps_settle_left_s() > 0:
+            raise ValueError("Wait for the GPS to settle first.")
+        self.agile_plan = plan_track(self.race.track_id, method, 12.0, tilt_deg=tilt)
+        self.agile_method, self.agile_phase, self.agile = method, "climb", None
+        self.prec_lander = None
+        if self.pilot.mode == "idle":  # take off with the pilot's own take-off, then the autopilot climbs to the start
+            self.pilot.takeoff(self.state, float(self.agile_plan.points[0][2]))
+        plan = self.agile_plan
+        n = len(plan.rings)
+        if plan.trajectory is None:
+            what = f"straight lines through the {n} ring centres, chased by a carrot at up to 3 m/s"
+        else:
+            pk = plan.trajectory.peaks()
+            what = (f"a smooth {plan.trajectory.duration_s:.1f} s trajectory through the {n} rings (top speed "
+                    f"{pk['speed_m_s']:.1f} m/s, leaning up to {pk['tilt_deg']:.0f}°)")
+        return (f"✈ Autopilot ({AGILE_NAMES[method]}): {what}. Going to the start point; the clock starts with the "
+                "lap. Any flying button takes over.")
+
+    def _agile_setpoint(self, s: State) -> Setpoint:
+        plan = self.agile_plan
+        x0, y0, z0 = (float(v) for v in plan.points[0])
+        est = self.sim.estimate
+        if self.agile_phase == "climb":
+            sp = Setpoint(armed=True, alt_m=z0, position_control=True, x_m=x0, y_m=y0)
+            near = math.dist(est.pos_m, (x0, y0, z0)) < 0.3 and float(abs(est.vel_m_s).max()) < 0.3
+            if near and not s.on_ground:
+                self.race.restart()
+                self._race_prev_pos = None
+                self.agile = TrackFollower(plan, self.agile_method, t_start_s=s.time_s)
+                self.agile_phase = "fly"
+            return sp
+        sp = self.agile.setpoint_for(est, s.time_s, s)
+        if self.agile.done:
+            self._end_agile(sp, finished=True)
+        return sp
+
+    def _end_agile(self, sp: Setpoint, finished: bool) -> None:
+        f = self.agile
+        self.agile, self.agile_phase = None, None
+        self.pilot = Pilot()
+        self.pilot.sp = Setpoint(armed=True, alt_m=sp.alt_m, position_control=True, x_m=sp.x_m, y_m=sp.y_m)
+        self.pilot.mode = "hover"
+        if not finished or f is None:
+            msg = "✈ Autopilot off: you have the controls."
+        elif f.lap_s is not None:
+            msg = (f"✈ Autopilot lap: all {len(f.plan.rings)} rings in {f.lap_s:.1f} s "
+                   f"({AGILE_NAMES[self.agile_method]}). Hovering: you have the controls.")
+        else:
+            msg = (f"✈ Autopilot: flew through {f.next_ring} of {len(f.plan.rings)} rings. Hovering: you have the "
+                   "controls.")
+        self.notices.append(msg)
+        self.pilot.message = msg
 
     def _update_race(self, s: State) -> None:
         """Check the rings once per physics step, on the TRUE position (passing a ring is a physical fact)."""
         pos = s.pos_m.copy()
         if self._race_prev_pos is not None:
-            for msg in self.race.update(self._race_prev_pos, pos, s.time_s, self.pilot.sp.armed):
+            auto = self.agile_phase == "fly"
+            armed = auto or (self.pilot.sp.armed and self.agile_phase is None)  # the clock waits while it climbs to the start
+            for msg in self.race.update(self._race_prev_pos, pos, s.time_s, armed, autopilot=auto):
                 self.notices.append(msg)
                 self.pilot.message = msg
         self._race_prev_pos = pos
@@ -455,6 +532,17 @@ class MissionSim(RealtimeSim):
             self._camera_img = render(s, self._pads(), None)
         if self.prec_lander is not None:
             return self._precland_setpoint(s)
+        if self.agile_phase == "climb" and self.pilot.mode in ("takeoff", "idle"):
+            sp = self.apply_failsafe(self.pilot.update(self.sim.estimate, dt_s, s))  # let the pilot take off first
+            if not s.on_ground and s.pos_m[2] > 0.5 * float(self.agile_plan.points[0][2]):
+                self.pilot.mode = "hover"
+            return sp
+        if self.agile_phase is not None:
+            if self.failsafe_active():
+                self._end_agile(self.pilot.sp, finished=False)
+                self.notices.append("✈ Autopilot stopped: GPS lost.")
+            else:
+                return self._agile_setpoint(s)
         if self.follower and self.gps_settle_left_s() > 0:
             self.follower._t_last = s.time_s  # the autopilot's clock starts once it may take off
             return Setpoint(armed=False, position_control=True, x_m=float(s.pos_m[0]), y_m=float(s.pos_m[1]))
@@ -489,6 +577,22 @@ class MissionSim(RealtimeSim):
             self.notices.append(msg)
         return sp
 
+    def _agile_snapshot(self) -> dict | None:
+        if self.agile_phase is None:
+            return None
+        f = self.agile
+        out = {"method": self.agile_method, "phase": self.agile_phase, "t_s": None, "duration_s": None, "error_m": None,
+               "rings_passed": f.next_ring if f else 0}
+        tr = self.agile_plan.trajectory
+        if tr is not None:
+            out["duration_s"] = round(tr.duration_s, 2)
+        if f is not None and f.t0 is not None:
+            out["t_s"] = round(self.state.time_s - f.t0, 2)
+            ref = f.reference(self.state.time_s) if tr is not None else (f.ref_log[-1][1:] if f.ref_log else None)
+            if ref is not None:
+                out["error_m"] = round(math.dist(self.state.pos_m, ref), 3)
+        return out
+
     @staticmethod
     def _hit_wall(state: State) -> None:
         """The obstacle stops the drone sideways (and stops it spinning); then it simply drops.
@@ -515,6 +619,11 @@ class MissionSim(RealtimeSim):
             return self.start_precland(str(args.get("mode", "vision")))
         if cmd == "camera":
             return self.set_camera(bool(args.get("enabled", False)))
+        if cmd == "agile":
+            return self.start_agile(str(args.get("method", "geometric")), float(args.get("tilt_deg", 30.0)))
+        if self.agile_phase is not None and cmd in ("hover", "land", "target", "takeoff"):
+            x, y, z = (float(v) for v in self.state.pos_m)
+            self._end_agile(Setpoint(armed=True, alt_m=z, position_control=True, x_m=x, y_m=y), finished=False)
         if self.prec_lander is not None and cmd in ("hover", "land", "target", "takeoff"):
             self.prec_lander = None
             if cmd != "takeoff":
@@ -535,6 +644,7 @@ class MissionSim(RealtimeSim):
             if f else None
         )  # fmt: skip
         snap["race"] = self.race.status(self.state.time_s) if self.race else None
+        snap["agile"] = self._agile_snapshot()
         f_cam = getattr(self.follower, "camera", None)
         if f_cam is not None:
             survey = {"photos_taken": len(f_cam.photos), "on_line": f_cam.line is not None}

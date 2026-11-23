@@ -192,11 +192,49 @@ function RaceBar({ s, offline, onLearn }: { s: SimState | null; offline: boolean
       {race && (
         <>
           <button disabled={offline} onClick={() => sim.send('reset')} title="Back to the start pad, clock to zero">↺ Race again</button>
-          <span className="muted">{race.tip}</span>
+          <AutopilotControls s={s} offline={offline} />
+          {!s?.agile && <span className="muted">{race.tip}</span>}
         </>
       )}
       <button className="link" onClick={() => onLearn('10-rings-race')}>📖 Racing tips</button>
     </div>
+  );
+}
+
+const AGILE_LABELS: Record<string, string> = {
+  geometric: 'Trajectory + geometric controller',
+  pid_ff: 'Trajectory + PID feedforward',
+  waypoints: 'Waypoints (no plan)',
+};
+
+/** ✈ Let the autopilot fly the track: a minimum-snap trajectory through the rings, or plain waypoints. */
+function AutopilotControls({ s, offline }: { s: SimState | null; offline: boolean }) {
+  const [method, setMethod] = useState('geometric');
+  const [tilt, setTilt] = useState(30);
+  const a = s?.agile ?? null;
+  if (a) {
+    const err = a.error_m !== null ? ` · ${a.error_m.toFixed(2)} m from the plan` : '';
+    const time = a.t_s !== null ? ` · ${a.t_s.toFixed(1)}${a.duration_s !== null ? ` / ${a.duration_s.toFixed(1)}` : ''} s` : '';
+    return (
+      <span className="agile-status" title="Any flying button (Hover, Land, Fly to) takes over">
+        ✈ {AGILE_LABELS[a.method]}: {a.phase === 'climb' ? 'going to the start…' : `ring ${a.rings_passed}${time}${err}`}
+      </span>
+    );
+  }
+  return (
+    <span className="agile-controls">
+      <select value={method} disabled={offline} onChange={(e) => setMethod(e.target.value)}
+        title="How the autopilot flies: one smooth planned curve (with two different controllers), or straight lines">
+        {Object.entries(AGILE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      </select>
+      <label className="inline" title="How hard it may lean: more tilt = more acceleration = a faster trajectory">
+        max tilt
+        <input type="number" min={10} max={45} step={5} value={tilt} disabled={offline}
+          onChange={(e) => setTilt(Math.min(45, Math.max(10, Number(e.target.value) || 30)))} style={{ width: '3.5em' }} />°
+      </label>
+      <button disabled={offline || (s?.gps_settle_left_s ?? 0) > 0} onClick={() => sim.send('agile', { method, tilt_deg: tilt })}
+        title="Plan a trajectory through the rings and fly it. The orange line is the plan.">✈ Autopilot</button>
+    </span>
   );
 }
 

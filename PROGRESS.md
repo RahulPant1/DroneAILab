@@ -514,3 +514,37 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   as hypotheses.
 - Live: map built in a background thread after a survey plan lands (~0.1-1 s), sent once; 🗺 Field map modal with
   NDVI colours, findings, "show the truth" toggle, 🤖 report. Lab experiment 10.
+
+## ✈ Agile flight: trajectories, a geometric controller, offboard ArduPilot (2026-11-23, user-approved: "go ahead with #1 and #5")
+- Open-source check first (licenses verified from the repos/PyPI): minsnap-trajectories (MIT, numpy+scipy) added as a
+  test-only dependency (`backend/requirements-dev.txt`) to cross-check our solver: same waypoints + times -> same curve
+  to 1e-10 m. RotorPy (MIT; minsnap + SE(3) controller) and mav_trajectory_generation (Apache-2.0) / uav_trajectories
+  (MIT) are reading references only (heavy deps / C++ + ROS). mrasl_mav_traj is GPL-3.0: not usable in this Apache
+  repo. ArduPilot (GPL-3.0) is read in `external/`, never copied; its Lua `set_target_posvel_circle.lua` is pointed to
+  in lesson 22 but NOT run (it would sit in SITL's shared scripts folder and hijack GUIDED flights above 5 m).
+- `trajectory.py`: min-snap KKT solve (7th order, snap continuous), x/y/z solved together so "pass through the ring
+  along its arrow" is two linear constraints; time = trapezoid guess -> share optimised (fixed total, -2 % lap) ->
+  exact time scaling to speed/accel/tilt/thrust limits. `sample_one` fast path (a figure-eight run: ~5 s).
+- Controller: Setpoint feedforward fields (None = old behaviour, bit-for-bit); cascade adds vel/acc/drag feedforward
+  (agile tilt cap 50°); `GeometricController` (Lee/Mellinger): 3D accel -> exact thrust direction, projected thrust,
+  jerk -> body-rate feedforward, same stiffness as the cascade.
+- Results (figure eight, calm): lap is set by the plan (30°: 14.7 s for both, waypoints 23.5 s); path error PID-ff
+  0.20 m vs geometric 0.03 m (45°: 0.38 vs 0.04 m, lap 11.6 s). Gusty 5 m/s: 0.31 vs 0.20 m (wind isn't in the plan).
+- Found: with real sensors the trajectory flights missed 2/8 rings (0.61 m off). Cause = the estimator's accelerometer
+  tilt correction ("|f| about g = down") is fooled in long banked turns (attitude error 2.3°, max 4.5°). Tilt
+  correction off: 0.1° and 8/8 (0.14 m). Tried a GPS-position-aided tilt correction: worse (GPS noise leaks into
+  tilt); not kept. Real fix = fuse GPS velocity (EKF). Exp 11 shows both conditions.
+- Scoring bug fixed: rings judged one by one counted the figure eight's last (low, middle) ring on the way out from
+  the start; a ring now counts only once the plan is heading for it.
+- Live: ✈ Autopilot on any race track (orange planned path). My first live test SAVED the autopilot's lap as a human
+  best time in data/race_best.json; removed that entry (the figure_eight track was new, so it was mine) and autopilot
+  laps are never saved now.
+- ArduPilot offboard (`backend/sitl/offboard.py`): GUIDED SET_POSITION_TARGET_LOCAL_NED with pos+vel+acc at 25 Hz
+  (4.7 source checked: acceleration IS used; old docs say it isn't). First 30° runs diverged by metres: ArduPilot's
+  input shaper has PSC_NE_JERK = 5 m/s³ and the plan peaks at 8.4. 20° (4.2 m/s³) was fine with defaults.
+  `ap_limits` now sets PSC_NE_JERK/PSC_D_JERK = 1.5 x plan peak, ATC_ANGLE_MAX = tilt + 10, WP_ACC = plan accel.
+  Figure eight, 30°: ArduPilot pos+vel+acc 8/8, 14.9 s, 0.14 m off the path; positions only 16.0 s, 0.31 m (4 m behind
+  schedule); its own AUTO planner 27.6 s, 0.07 m. DroneLab geometric 14.7 s, 0.03 m. docs/results/agile-compare.md.
+  Square loop 30° with these limits: 4/4, 6.34 s (DroneLab 6.31 s), 0.10 m mean / 0.26 m worst (defaults: 1/4, 2.3 / 5.2 m).
+- Tests: test_agile.py (maths, cross-check, controllers, exp 11, live autopilot) + test_sitl.py (limits/mask unit test,
+  opt-in real offboard flight: passed locally). CI installs requirements-dev.txt.

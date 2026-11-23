@@ -1,0 +1,4 @@
+# Optional, for tests only: an independent minimum-snap implementation (MIT, github.com/Hs293Go/minsnap_trajectories)
+# that backend/tests/test_agile.py cross-checks our own solver against. Pulls in scipy. The app never imports it;
+# without it that one test is skipped.
+minsnap-trajectories==0.3.0

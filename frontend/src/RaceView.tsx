@@ -55,6 +55,16 @@ function StartPad({ start }: { start: [number, number] }) {
   );
 }
 
+/** ✈ The autopilot's planned trajectory: a thin glowing line through the rings. */
+function PlannedPath({ path }: { path: [number, number, number][] }) {
+  const line = useMemo(() => {
+    const geom = new THREE.BufferGeometry().setFromPoints(path.map(([x, y, z]) => new THREE.Vector3(x, y, z)));
+    return new THREE.Line(geom, new THREE.LineBasicMaterial({ color: '#ff9f1c', transparent: true, opacity: 0.85 }));
+  }, [path]);
+  useEffect(() => () => line.geometry.dispose(), [line]);
+  return <primitive object={line} />;
+}
+
 export default function RaceView({ race }: { race: RaceTrack }) {
   const mats = useRef<(THREE.MeshStandardMaterial | null)[]>([]);
   useFrame(() => {
@@ -70,6 +80,7 @@ export default function RaceView({ race }: { race: RaceTrack }) {
     <group>
       <StartPad start={race.start} />
       <Poles rings={race.rings} />
+      {race.autopilot && <PlannedPath path={race.autopilot.path} />}
       {race.rings.map((r, i) => (
         <Hoop key={i} ring={r} index={i} matRef={(m) => { mats.current[i] = m; }} />
       ))}

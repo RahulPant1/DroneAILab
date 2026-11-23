@@ -127,6 +127,8 @@ class Flight:
         self.ekf_ok = False  # EKF has a good horizontal position
         self.motor_pct = [0.0, 0.0, 0.0, 0.0]
         self.truth: dict | None = None  # SITL only: where the drone REALLY is (SIMSTATE), vs pos = what the EKF believes
+        self.truth3d: dict | None = None  # SITL only: full 3D truth from SIM_STATE (lat/lon/alt AMSL, velocity, tilt)
+        self.home_alt_amsl_m: float | None = None
         self.params: dict[str, float] = {}  # from PARAM_VALUE (only the ones we set or asked for)
         self.mode_log: list[tuple[float, str]] = []  # (autopilot time, mode) each time the mode changes
         self.text_log: list[tuple[float, str]] = []  # (autopilot time, STATUSTEXT)
@@ -168,6 +170,7 @@ class Flight:
                 self.att = (msg.roll, msg.pitch, msg.yaw)
             elif kind == "HOME_POSITION":
                 self.home = (msg.latitude / 1e7, msg.longitude / 1e7)
+                self.home_alt_amsl_m = msg.altitude / 1000.0
             elif kind == "HEARTBEAT" and msg.get_srcSystem() == self.m.target_system and msg.type != mav.MAV_TYPE_GCS:
                 self.armed = bool(msg.base_mode & mav.MAV_MODE_FLAG_SAFETY_ARMED)
                 self.mode = self.m.flightmode
@@ -175,6 +178,9 @@ class Flight:
                     self.mode_log.append((self.t_s, self.mode))
             elif kind == "SIMSTATE":  # the simulator's ground truth (lat/lng in degE7)
                 self.truth = {"lat": msg.lat / 1e7, "lon": msg.lng / 1e7}
+            elif kind == "SIM_STATE":
+                self.truth3d = {"lat": msg.lat_int / 1e7, "lon": msg.lon_int / 1e7, "alt_amsl_m": msg.alt,
+                                "vn": msg.vn, "ve": msg.ve, "vd": msg.vd, "roll": msg.roll, "pitch": msg.pitch}
             elif kind == "PARAM_VALUE":
                 self.params[msg.param_id] = msg.param_value
             elif kind == "SYS_STATUS":
@@ -272,6 +278,20 @@ class Flight:
             except TimeoutError:
                 if time.monotonic() > deadline:
                     raise TimeoutError(f"The autopilot didn't accept {name} = {value}") from None
+
+    def request_rate(self, msg_id: int, hz: float) -> bool:
+        """Ask the autopilot to send one message type at `hz` (MAV_CMD_SET_MESSAGE_INTERVAL, in microseconds)."""
+        return self.command(self.mav.MAV_CMD_SET_MESSAGE_INTERVAL, msg_id, 1e6 / hz)
+
+    def truth_enu3(self) -> tuple[float, float, float, float, float, float, float] | None:
+        """SITL only: (east, north, up, v_east, v_north, v_up, tilt_rad) of where the drone REALLY is, from SIM_STATE.
+        The caller holds self.lock."""
+        t = self.truth3d
+        if self.home is None or t is None or self.home_alt_amsl_m is None:
+            return None
+        n, e = latlon_to_ne(t["lat"], t["lon"], *self.home)
+        tilt = math.acos(max(-1.0, min(1.0, math.cos(t["roll"]) * math.cos(t["pitch"]))))
+        return e, n, t["alt_amsl_m"] - self.home_alt_amsl_m, t["ve"], t["vn"], -t["vd"], tilt
 
     def truth_enu(self) -> tuple[float, float] | None:
         """Where the drone REALLY is (east, north of home), from the simulator. None outside SITL."""

@@ -19,7 +19,10 @@ export default function MapPlot({ plot, runs }: { plot: PlotDef; runs: ChartRun[
         const xs = r.result.telemetry[xCh] ?? [];
         const ys = r.result.telemetry[yCh] ?? [];
         const pts: [number, number][] = [];
-        for (let i = from; i < xs.length; i += 2) pts.push([xs[i], ys[i]]);
+        for (let i = from; i < xs.length; i += 2) {
+          const x = xs[i], y = ys[i];
+          if (x !== null && y !== null) pts.push([x, y]); // skip gaps (no value at that moment)
+        }
         return pts;
       }),
     [runs, xCh, yCh, from],
@@ -37,6 +40,7 @@ export default function MapPlot({ plot, runs }: { plot: PlotDef; runs: ChartRun[
     const xs: number[] = [], ys: number[] = [];
     paths.flat().forEach(([x, y]) => { xs.push(x); ys.push(y); });
     extra.planned_route.forEach(([x, y]) => { xs.push(x); ys.push(y); });
+    (extra.gates ?? []).forEach(([x, y, , r]) => { xs.push(x - r, x + r); ys.push(y - r, y + r); });
     extra.waypoints.forEach(([x, y]) => { xs.push(x); ys.push(y); });
     extra.obstacles.forEach((o) => { xs.push(o.x_min, o.x_max); ys.push(o.y_min, o.y_max); });
     (extra.fields ?? []).flat().forEach(([x, y]) => { xs.push(x); ys.push(y); });
@@ -111,6 +115,18 @@ export default function MapPlot({ plot, runs }: { plot: PlotDef; runs: ChartRun[
           <polyline key={i} points={p.map(([x, y]) => pt(x, y)).join(' ')} className="map-flown"
             style={{ stroke: RUN_COLORS[i % 2], strokeDasharray: i === 1 ? '5 4' : undefined }} />
         ))}
+        {(extra.gates ?? []).map(([x, y, h, r, ok], i) => {
+          const a = (h * Math.PI) / 180, px = -Math.sin(a) * r, py = Math.cos(a) * r; // across the ring
+          const ax = Math.cos(a) * r * 0.8, ay = Math.sin(a) * r * 0.8; // the way to fly through
+          return (
+            <g key={`gate${i}`} className={ok ? 'map-gate ok' : 'map-gate missed'}>
+              <line x1={x - px} y1={-(y - py)} x2={x + px} y2={-(y + py)} />
+              <line x1={x} y1={-y} x2={x + ax} y2={-(y + ay)} className="map-gate-arrow" />
+              <text x={x - px * 1.6} y={-(y - py * 1.6) + font * 0.35} fontSize={font}>{i + 1}</text>
+              <title>Ring {i + 1}: {ok ? 'flown through' : 'MISSED'}</title>
+            </g>
+          );
+        })}
         {extra.waypoints.map(([x, y], i) =>
           i === 0 ? (
             <polygon key={i} points={`${x},${-y - font * 0.6} ${x - font * 0.5},${-y + font * 0.35} ${x + font * 0.5},${-y + font * 0.35}`} className="map-start" />
@@ -140,6 +156,7 @@ export default function MapPlot({ plot, runs }: { plot: PlotDef; runs: ChartRun[
         ))}
         {extra.estimate && <span><i className="sw est" /> where it thought it was</span>}
         {extra.photos && <span><i className="sw photo" /> photo footprints</span>}
+        {extra.gates && <span><span className="map-gate-key ok">┃</span> ring flown through <span className="map-gate-key missed">┃</span> missed</span>}
         {extra.gaps && extra.gaps.length > 0 && <span className="map-gap-key">● gap</span>}
         {extra.obstacles.length > 0 && <span><i className="sw obstacle" /> obstacle</span>}
         {extra.obstacles.length > 0 && <span><i className="sw zone" /> keep-out zone</span>}

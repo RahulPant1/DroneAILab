@@ -367,6 +367,16 @@ ul.timeline li.mode { color: #4cc9f0; }
 .map-photo { fill: rgba(76, 201, 240, 0.07); stroke: rgba(76, 201, 240, 0.35); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .map-gap { fill: #ef476f; }
 .map-gap-key { color: #ef476f; }
+.map-gate line { stroke-width: 3; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.map-gate.ok line { stroke: #06d6a0; }
+.map-gate.missed line { stroke: #ef476f; }
+.map-gate .map-gate-arrow { stroke-width: 1.5; stroke-dasharray: 3 2; }
+.map-gate text { fill: var(--muted); text-anchor: middle; }
+.map-gate-key { font-weight: 700; }
+.map-gate-key.ok { color: #06d6a0; }
+.map-gate-key.missed { color: #ef476f; }
+.agile-controls { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.agile-status { color: #ff9f1c; font-weight: 600; }
 .map-nofly { fill: rgba(239, 71, 111, 0.2); stroke: #ef476f; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .map-pad { fill: #cfd6e3; }
 .map-marker { fill: none; stroke: #111; }

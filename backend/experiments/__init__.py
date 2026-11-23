@@ -1,5 +1,6 @@
 """The guided experiments of the Engineering Lab, in teaching order."""
 
+from .agile_flight import EXPERIMENT as AGILE
 from .attitude import EXPERIMENT as ATTITUDE
 from .base import Experiment, ExperimentError
 from .crop_health import EXPERIMENT as CROP_HEALTH
@@ -13,7 +14,8 @@ from .thrust_takeoff import EXPERIMENT as THRUST_TAKEOFF
 from .wind import EXPERIMENT as WIND
 
 EXPERIMENTS: dict[str, Experiment] = {
-    e.id: e for e in (THRUST_TAKEOFF, MASS_THRUST, ATTITUDE, PID_TUNING, WIND, SENSOR_NOISE, MISSIONS, SURVEY, PRECISION_LANDING, CROP_HEALTH)
+    e.id: e for e in (THRUST_TAKEOFF, MASS_THRUST, ATTITUDE, PID_TUNING, WIND, SENSOR_NOISE, MISSIONS, SURVEY, PRECISION_LANDING, CROP_HEALTH,
+                 AGILE)
 }
 
 

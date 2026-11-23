@@ -485,7 +485,7 @@ def handle_message(session: MissionSim, msg) -> dict | None:
             return {"type": "config", "config": session.config.to_dict(), "course": session.course_info(),
                     "race": session.race_info(), "message": "Reset."}
         text = session.command(cmd, **args)
-        if cmd in ("course", "mission", "race", "plan"):
+        if cmd in ("course", "mission", "race", "plan", "agile"):
             return {"type": "course", "course": session.course_info(), "race": session.race_info(), "message": text}
         return {"type": "info", "message": text} if text else None
     except (ConfigError, ValueError, TypeError, KeyError) as exc:

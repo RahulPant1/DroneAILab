@@ -82,6 +82,14 @@ TRACKS: dict[str, dict] = {
         "rings": [Ring(4, 0, 2, 0), Ring(7, 3.5, 2.5, 90), Ring(4, 7, 2, 180), Ring(0.5, 3.5, 2.5, 270)],
         "tip": "Follow the arrows around a square. Turn with Q (left) so W still means 'forward'.",
     },
+    "figure_eight": {
+        "title": "Figure eight (8 rings, two heights in the middle)",
+        "start": (-3.0, -3.0),
+        "rings": [Ring(5, 3.5, 2.5, 0), Ring(8.5, 0, 2, 270), Ring(5, -3.5, 2.5, 180), Ring(0, 0, 3.4, 135),
+                  Ring(-5, 3.5, 2.5, 180), Ring(-8.5, 0, 2, 270), Ring(-5, -3.5, 2.5, 0), Ring(0, 0, 1.5, 45)],
+        "tip": "Round the right loop clockwise, cross the middle HIGH, round the left loop, cross the middle LOW. "
+               "Hard by hand: try ✈ Autopilot to see a smooth trajectory fly it.",
+    },
 }
 
 
@@ -129,8 +137,10 @@ class Race:
         self.new_best = False
         self.splits_s: list[float] = []
 
-    def update(self, p0: np.ndarray, p1: np.ndarray, t_s: float, armed: bool) -> list[str]:
-        """Advance the game by one physics step (the drone moved p0 -> p1). Returns messages to show."""
+    def update(self, p0: np.ndarray, p1: np.ndarray, t_s: float, armed: bool, autopilot: bool = False) -> list[str]:
+        """Advance the game by one physics step (the drone moved p0 -> p1). Returns messages to show.
+
+        autopilot=True: the ✈ autopilot is flying, so a finish is reported but never saved as a best time."""
         said: list[str] = []
         if self.finish_s is not None:
             return said
@@ -145,6 +155,9 @@ class Race:
             self.next_ring += 1
             if self.next_ring == len(self.rings):
                 self.finish_s = elapsed
+                if autopilot:
+                    said.append(f"🏁 Autopilot finished in {elapsed:.1f} s (autopilot laps don't count as best times).")
+                    return said
                 self.new_best = save_best_time(self.track_id, elapsed, self.best_file)
                 if self.new_best or self.best_s is None:
                     self.best_s = round(elapsed, 2)

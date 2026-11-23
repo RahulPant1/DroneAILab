@@ -196,3 +196,28 @@ def test_the_same_survey_on_real_ardupilot_covers_the_field():
     assert dl["coverage_pct"] == 100.0
     assert ap["coverage_pct"] >= 95.0 and len(ap["photos_xy"]) >= 0.7 * dl["photos"]
     assert ap["landing_error_m"] < 2.0 and ap["flight_time_s"] < 3 * dl["flight_time_s"]
+
+
+def test_offboard_limits_open_up_to_fit_the_plan():
+    from backend.autonomy.agile import plan_track
+    from backend.sitl.offboard import MASK_POS_ONLY, MASK_POS_VEL_ACC, ap_limits
+
+    plan = plan_track("figure_eight", "geometric", 12.0, tilt_deg=30.0)
+    lim = ap_limits(plan)
+    assert lim["PSC_NE_JERK"] >= plan.trajectory.peaks()["jerk_m_s3"] * 1.4  # the shaper must allow the plan's jerk
+    assert lim["ATC_ANGLE_MAX"] > 30.0 and lim["WP_ACC"] == pytest.approx(plan.limits.accel_m_s2, abs=0.01)
+    # MAVLink type_mask bits are IGNORE flags: pos+vel+acc uses bits 0-8 (all zero), ignores yaw (10) + yaw rate (11)
+    assert MASK_POS_VEL_ACC & 0b1_1111_1111 == 0 and MASK_POS_VEL_ACC & (1 << 9) == 0
+    assert MASK_POS_ONLY & 0b111 == 0 and MASK_POS_ONLY & 0b1_1111_1000 == 0b1_1111_1000
+
+
+@pytest.mark.skipif(os.environ.get("DRONELAB_SITL") != "1", reason="real SITL flight: set DRONELAB_SITL=1")
+@pytest.mark.skipif(not launch.is_built(), reason="ArduCopter SITL not built (scripts/sitl_setup.sh)")
+def test_real_arducopter_flies_our_trajectory_offboard():
+    """Stream DroneLab's minimum-snap trajectory (pos + vel + accel) to ArduCopter in GUIDED: every ring, on the line."""
+    from backend.sitl.offboard import compare
+
+    res = compare("square_loop", tilt_deg=30.0, speedup=1.0, methods=("guided_pva",), say=lambda _t: None)
+    ap = res["ardupilot"]["guided_pva"]
+    assert ap["rings_passed"] == ap["rings_total"] == 4, ap
+    assert ap["path_err_mean_m"] < 0.5 and ap["lap_time_s"] < 1.3 * res["dronelab"]["geometric"]["lap_time_s"]

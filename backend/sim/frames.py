@@ -114,3 +114,24 @@ def cross3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.array(
         [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
     )
+
+
+def quat_from_rotation_matrix(r: np.ndarray) -> np.ndarray:
+    """The quaternion for a rotation matrix (columns = body x, y, z axes in world coordinates).
+
+    Shepperd's method: start from the largest of w, x, y, z, so we never divide by a tiny number.
+    """
+    tr = r[0, 0] + r[1, 1] + r[2, 2]
+    if tr > 0:
+        s = 2.0 * math.sqrt(1.0 + tr)
+        q = [0.25 * s, (r[2, 1] - r[1, 2]) / s, (r[0, 2] - r[2, 0]) / s, (r[1, 0] - r[0, 1]) / s]
+    elif r[0, 0] > r[1, 1] and r[0, 0] > r[2, 2]:
+        s = 2.0 * math.sqrt(1.0 + r[0, 0] - r[1, 1] - r[2, 2])
+        q = [(r[2, 1] - r[1, 2]) / s, 0.25 * s, (r[0, 1] + r[1, 0]) / s, (r[0, 2] + r[2, 0]) / s]
+    elif r[1, 1] > r[2, 2]:
+        s = 2.0 * math.sqrt(1.0 + r[1, 1] - r[0, 0] - r[2, 2])
+        q = [(r[0, 2] - r[2, 0]) / s, (r[0, 1] + r[1, 0]) / s, 0.25 * s, (r[1, 2] + r[2, 1]) / s]
+    else:
+        s = 2.0 * math.sqrt(1.0 + r[2, 2] - r[0, 0] - r[1, 1])
+        q = [(r[1, 0] - r[0, 1]) / s, (r[0, 2] + r[2, 0]) / s, (r[1, 2] + r[2, 1]) / s, 0.25 * s]
+    return quat_normalize(np.array(q))

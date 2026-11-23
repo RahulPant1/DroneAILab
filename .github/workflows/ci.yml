@@ -21,8 +21,8 @@ jobs:
       - name: Python 3.12 venv + pinned deps
         run: |
           uv venv --python 3.12 .venv
-          uv pip install --python .venv/bin/python -r backend/requirements.txt
-      - name: pytest (physics, control, estimation, missions, games, formation, API, AI with a fake LLM)
+          uv pip install --python .venv/bin/python -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: pytest (physics, control, estimation, missions, games, formation, trajectories, API, AI with a fake LLM)
         run: .venv/bin/pytest -q
 
   frontend:
@@ -59,7 +59,7 @@ jobs:
           key: ardupilot-${{ runner.os }}-${{ hashFiles('scripts/sitl_setup.sh', 'scripts/patches/*.patch') }}
       - name: Download + build ArduCopter 4.7.3 for SITL (cached after the first run)
         run: ./scripts/sitl_setup.sh
-      - name: Fly it (take-off, fly-to, mission, RTL, the DroneLab panel, fault injection, log doctor)
+      - name: Fly it (take-off, fly-to, mission, RTL, the DroneLab panel, offboard trajectory, fault injection, log doctor)
         env:
           DRONELAB_SITL: "1"
         run: .venv/bin/pytest -q backend/tests/test_sitl.py backend/tests/test_faults.py backend/tests/test_logdoctor.py

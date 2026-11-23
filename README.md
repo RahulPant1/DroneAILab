@@ -35,14 +35,28 @@ Full report with a chart per fault: [docs/results/fault-injection.md](docs/resul
 | "Fly to the school and back" | ❌ not on the map |
 | "Survey all three fields at 8 m" | ❌ battery: ~79 % of the pack, too little reserve |
 
-**6. Tested like flight software.** On every push, GitHub Actions runs the test suite, builds the web app, **compiles ArduCopter and flies it**: a full mission, the DroneLab panel, and all 11 fault scenarios.
+**6. Agile flight: smooth trajectories, two controllers, and offboard control of ArduPilot.** A minimum-snap trajectory through race rings (checked against an independent open-source solver), flown with velocity/acceleration feedforward by the cascaded PID or by a **geometric (SE(3)) controller**, then **streamed to real ArduCopter in GUIDED mode** (position + velocity + acceleration over MAVLink). Figure eight, 8 rings, 30° max tilt, measured on ground truth ([full table](docs/results/agile-compare.md)):
 
-**7. A local AI tutor.** Ask questions about any run; a local Gemma model (Ollama, no cloud) answers from that run's measured metrics, labels each claim as measured or hypothesis, and flags any number that isn't in the data. Its suggested experiments are schema-validated and never run without a click.
+| Who flies it | Lap | Off the planned path |
+|---|---|---|
+| DroneLab waypoints (no plan) | 23.5 s | 0.08 m |
+| DroneLab trajectory + PID feedforward | 14.7 s | 0.20 m |
+| DroneLab trajectory + geometric controller | 14.7 s | **0.03 m** |
+| ArduCopter 4.7, our trajectory streamed (pos + vel + accel) | 14.9 s | 0.14 m |
+| ArduCopter 4.7, its own AUTO planner through the same rings | 27.6 s | 0.07 m |
+
+Found along the way: ArduPilot's GUIDED input shaper has a 5 m/s³ jerk limit (`PSC_NE_JERK`), and a plan above it diverges by metres. And our simple estimator's accelerometer tilt correction is fooled in long banked turns (real autopilots fuse GPS velocity).
+
+**7. Tested like flight software.** On every push, GitHub Actions runs the test suite, builds the web app, **compiles ArduCopter and flies it**: a full mission, the DroneLab panel, an offboard trajectory, and all 11 fault scenarios.
+
+**8. A local AI tutor.** Ask questions about any run; a local Gemma model (Ollama, no cloud) answers from that run's measured metrics, labels each claim as measured or hypothesis, and flags any number that isn't in the data. Its suggested experiments are schema-validated and never run without a click.
 
 ## What this project demonstrates
 | Area | Where |
 |---|---|
-| Flight dynamics, control (cascaded PID), state estimation | [backend/sim/](backend/sim/) |
+| Flight dynamics, control (cascaded PID, geometric SE(3) with feedforward), state estimation | [backend/sim/](backend/sim/) |
+| Minimum-snap trajectory generation (gates, time allocation, limit fitting) | [backend/autonomy/trajectory.py](backend/autonomy/trajectory.py), [agile.py](backend/autonomy/agile.py) |
+| Offboard control of ArduPilot (GUIDED, SET_POSITION_TARGET_LOCAL_NED) | [backend/sitl/offboard.py](backend/sitl/offboard.py), [results](docs/results/agile-compare.md) |
 | Path planning (A*, potential fields), lidar sense-and-avoid with replanning, multi-agent avoidance | [backend/autonomy/](backend/autonomy/) |
 | Survey planning (camera footprint, overlap, coverage), task plans with safety checks, AI mission planner | [backend/autonomy/survey.py](backend/autonomy/survey.py), [plan.py](backend/autonomy/plan.py), [backend/ai/mission_planner.py](backend/ai/mission_planner.py) |
 | Vision-based precision landing (rendering, marker detection, pixel-to-ground geometry) | [backend/autonomy/precland.py](backend/autonomy/precland.py) |
@@ -54,7 +68,7 @@ Full report with a chart per fault: [docs/results/fault-injection.md](docs/resul
 | Real-time 3D UI (React, Three.js, WebSocket) | [frontend/src/](frontend/src/) |
 | Local LLM integration with grounding and validation | [backend/ai/](backend/ai/) |
 | CI with hardware-free flight tests | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
-| Teaching material: 20 lessons with self-checks | [docs/learn/](docs/learn/) |
+| Teaching material: 22 lessons with self-checks | [docs/learn/](docs/learn/) |
 
 ---
 
@@ -82,7 +96,7 @@ Click **Take off** (or press T), then hold W/A/S/D or the arrow keys (move), Spa
 - **📡 Lidar** (live) and the **Lidar planner**: 72 laser beams map obstacles the drone doesn't know about; try the *Hidden walls* course.
 - **🌾 Hillside farm** course: fields, buildings, no-fly zones and landing pads. **🧭 Mission planner**: say what to do (local AI) or build the task list by hand, check it, fly it (⏩ speeds up time), then open the **🗺 Field map** (crop health + 🤖 farmer's report); **🎯 Land on pad** with the down camera (picture-in-picture), or GPS only to compare.
 - **🔋 Battery** and **🛠 Build your own drone** (Drone Studio panel): pick frame, motors, props and battery, see weight, thrust-to-weight and flight time, then fly it on its own battery until the low-battery failsafe brings it home.
-- **Lab** tab: ten guided experiments (thrust, mass, attitude, PID tuning, wind, sensor noise, missions, field survey, precision landing, crop-health map) with plots, explanations and "try next" ideas. **History** compares saved runs.
+- **Lab** tab: eleven guided experiments (thrust, mass, attitude, PID tuning, wind, sensor noise, missions, field survey, precision landing, crop-health map, agile flight) with plots, explanations and "try next" ideas. **History** compares saved runs.
 - **🩺 Logs** tab: the flight-log doctor (simulator logs, or upload a real drone's `.BIN`), with a 🤖 local-AI debrief.
 - **💬 Assistant:** the local AI tutor (needs [Ollama](https://ollama.com) with a Gemma model; the app works without it).
 
@@ -93,16 +107,18 @@ Click **Take off** (or press T), then hold W/A/S/D or the arrow keys (move), Spa
 .venv/bin/python -m backend.sitl.fly       # scripted flight: take-off, fly-to, square mission, RTL + report
 .venv/bin/python -m backend.sitl.faults --all   # the fault-injection lab (~7 min) -> docs/results/
 .venv/bin/python -m backend.sitl.plan_flight --write   # the same field survey on DroneLab and ArduPilot -> docs/results/
+.venv/bin/python -m backend.sitl.offboard --write      # stream a minimum-snap trajectory to ArduPilot (GUIDED) -> docs/results/
 ```
 In the app: **Fly** tab → **🛰 ArduPilot** → Start. The real autopilot flies an orange drone next to yours (take-off, fly-to, square mission, return home), **📈 Compare** plots the same "fly 10 m north" on both autopilots, **🧪 Fault injection** runs any scenario live, and the 🧭 Mission planner's **Fly on ArduPilot too** uploads a farm plan to it as an AUTO mission.
 
 Map ground station: `./scripts/qgc_setup.sh` once (QGroundControl 4.4.5, ~550 MB in `external/`; it needs `sudo apt install libgstreamer-gl1.0-0 libgstreamer-plugins-base1.0-0 libpulse-mainloop-glib0`), then `./scripts/qgc.sh`. If the 🛰 panel is running, QGroundControl joins the same flight.
 
-Lessons: [12 · ArduPilot SITL](docs/learn/12-ardupilot-sitl.md), [13 · Fault injection](docs/learn/13-fault-injection.md), [14 · Flight logs](docs/learn/14-flight-logs.md), [17 · Surveys](docs/learn/17-survey.md), [18 · Precision landing](docs/learn/18-precision-landing.md), [19 · AI mission planner](docs/learn/19-ai-mission-planner.md), [20 · Crop-health maps](docs/learn/20-crop-health.md). Analyse a log from the terminal: `.venv/bin/python -m backend.logdoctor.analyze path/to/log.BIN`.
+Lessons: [12 · ArduPilot SITL](docs/learn/12-ardupilot-sitl.md), [13 · Fault injection](docs/learn/13-fault-injection.md), [14 · Flight logs](docs/learn/14-flight-logs.md), [17 · Surveys](docs/learn/17-survey.md), [18 · Precision landing](docs/learn/18-precision-landing.md), [19 · AI mission planner](docs/learn/19-ai-mission-planner.md), [20 · Crop-health maps](docs/learn/20-crop-health.md), [21 · Agile flight](docs/learn/21-trajectories.md), [22 · Offboard control + open-source to learn from](docs/learn/22-offboard-ardupilot.md). Analyse a log from the terminal: `.venv/bin/python -m backend.logdoctor.analyze path/to/log.BIN`.
 
 ## Tests
 ```bash
-.venv/bin/pytest                                                  # ~250 tests, ~4 min, no ArduPilot needed
+.venv/bin/pytest                                                  # ~280 tests, ~5 min, no ArduPilot needed
+uv pip install --python .venv/bin/python -r backend/requirements-dev.txt   # optional: the min-snap cross-check
 DRONELAB_SITL=1 .venv/bin/pytest -q backend/tests/test_sitl.py backend/tests/test_faults.py backend/tests/test_logdoctor.py   # real ArduCopter flights
 (cd frontend && npm run build)                                    # type-check + build
 ```
@@ -120,12 +136,12 @@ Delete the folder. ArduPilot and QGroundControl live in its `external/` subfolde
 ## Project layout
 ```
 backend/sim/        physics, controller, sensors, estimator, battery, drone builder, pilot, real-time runner
-backend/autonomy/   missions, planners (A*, potential field, lidar), formation, farm site, surveys, task plans, precision landing, crop maps
-backend/sitl/       ArduPilot SITL: launch, MAVLink flight, panel bridge, fault lab, QGroundControl
+backend/autonomy/   missions, planners (A*, potential field, lidar), formation, farm site, surveys, task plans, precision landing, crop maps, trajectories
+backend/sitl/       ArduPilot SITL: launch, MAVLink flight, panel bridge, offboard trajectories, fault lab, QGroundControl
 backend/ai/         Ollama client, prompts, schema validation, assistant, AI mission planner
 backend/logdoctor/  ArduPilot log reader, engineer's checks, LLM debrief
 backend/experiments/ the Lab experiments          backend/games/  rings race
-frontend/src/       React + Three.js UI           docs/learn/     20 lessons
+frontend/src/       React + Three.js UI           docs/learn/     22 lessons
 docs/PRD.md         the spec it was built to      PROGRESS.md     build log, measurements, what didn't work
 ```
 

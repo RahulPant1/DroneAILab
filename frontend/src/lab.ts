@@ -71,6 +71,7 @@ export interface MapExtra {
   estimate?: [number[], number[]]; // where the drone THOUGHT it was (x list, y list)
   window?: [number, number, number, number]; // x0, x1, y0, y1: zoom the map to this area
   first_index?: number; // draw the paths from this sample on (e.g. only near the pad)
+  gates?: [number, number, number, number, number][]; // race rings: x, y, heading (deg), radius, passed (1/0)
 }
 
 /** A strip of pictures (e.g. the down camera on the way down). */
@@ -92,7 +93,7 @@ export interface RunResult {
   env: Record<string, unknown>;
   seed: number;
   scenario: { experiment_id?: string; params?: Params; duration_s?: number };
-  telemetry: Record<string, number[]>;
+  telemetry: Record<string, (number | null)[]>; // null = no value at that moment (e.g. no plan yet)
   metrics: Record<string, number | boolean | string | null>;
   events: { t_s: number; type: string; message: string; x_m?: number; y_m?: number }[];
   summary: string[];

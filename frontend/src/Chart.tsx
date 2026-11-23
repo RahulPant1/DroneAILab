@@ -18,7 +18,7 @@ function seriesData(run: RunResult, plot: PlotDef): (number | null)[][] {
   const t = run.telemetry.t_s ?? [];
   return plot.series.map((s) => {
     const values = run.telemetry[s.channel];
-    return values ? values.map((v) => v * s.scale) : t.map(() => null);
+    return values ? values.map((v) => (v === null ? null : v * s.scale)) : t.map(() => null); // null = no value here (a gap)
   });
 }
 

@@ -222,7 +222,10 @@ doctor (local Gemma explains ArduPilot logs, offline). Then (2026-11-22) lidar s
 the Drone Builder; then (2026-11-22) a farm site with survey missions (also flown on ArduPilot SITL), vision-based
 precision landing (a rendered down camera, numpy only, no OpenCV) and the AI mission planner (local Gemma writes a
 task list from names on the map; code routes and safety-checks it; the user presses Fly). Then (2026-11-23) crop-health
-(NDVI) maps stitched from the survey photos, patch detection and a local-AI farmer's report.
+(NDVI) maps stitched from the survey photos, patch detection and a local-AI farmer's report. Then (2026-11-23) agile
+flight: minimum-snap trajectories, feedforward + a geometric controller, and offboard control of ArduPilot SITL in
+GUIDED mode (approved: "go ahead with #1 and #5"). Optional test-only dependency: minsnap-trajectories (MIT) as an
+independent cross-check of the solver.
 
 ### Roadmap (do NOT install or scaffold)
 PX4 SITL + Gazebo + MAVSDK, ROS 2, camera/vision, RL, NVIDIA Warp acceleration.

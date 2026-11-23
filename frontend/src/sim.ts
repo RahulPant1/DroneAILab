@@ -34,6 +34,7 @@ export interface SimState {
   message: string;
   mission: MissionStatus | null; // set while the mission autopilot is flying
   race: RaceStatus | null; // set while a rings-race track is loaded
+  agile: AgileStatus | null; // ✈ race autopilot flying (null = off)
   formation: FormationStatus | null; // set while wingmen are flying with you
   sitl: SitlStatus | null; // the 🛰 ArduPilot panel (real ArduCopter SITL), null until it's used
   battery: BatteryStatus | null; // null = unlimited power (battery off)
@@ -248,6 +249,17 @@ export interface RaceTrack {
   tip: string;
   start: [number, number];
   rings: Ring[];
+  autopilot?: { method: string; path: [number, number, number][] }; // ✈ the last planned trajectory, drawn in 3D
+}
+
+/** ✈ Race autopilot, in every state frame while it flies. */
+export interface AgileStatus {
+  method: string; // waypoints | pid_ff | geometric
+  phase: 'climb' | 'fly';
+  t_s: number | null; // time into the lap
+  duration_s: number | null; // the trajectory's length (null for waypoints)
+  error_m: number | null; // distance from where the plan says to be now
+  rings_passed: number;
 }
 
 /** Live race numbers, in every state frame. */
