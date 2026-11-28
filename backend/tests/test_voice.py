@@ -43,7 +43,13 @@ def say(rt: MissionSim, text: str, client: OllamaClient | None = None, steps: in
     ("Take off!", [{"action": "takeoff"}]),
     ("take off to five metres", [{"action": "takeoff", "height_m": 5.0}]),
     ("go left three metres", [{"action": "move", "direction": "left", "metres": 3.0}]),
-    ("please go up", [{"action": "move", "direction": "up", "metres": 1.0}]),
+    ("please go up", [{"action": "move", "direction": "up", "metres": 3.0}]),
+    ("higher", [{"action": "move", "direction": "up", "metres": 3.0}]),
+    ("a bit lower", [{"action": "move", "direction": "down", "metres": 1.0}]),
+    ("much higher", [{"action": "move", "direction": "up", "metres": 10.0}]),
+    ("go to thirty metres", [{"action": "height", "height_m": 30.0}]),
+    ("fly at 40 m", [{"action": "height", "height_m": 40.0}]),
+    ("come down to five", [{"action": "height", "height_m": 5.0}]),
     ("fly forwards 2.5 m", [{"action": "move", "direction": "forward", "metres": 2.5}]),
     ("turn right", [{"action": "turn", "direction": "right", "degrees": 90.0}]),
     ("go forward 4 m and then turn around", [{"action": "move", "direction": "forward", "metres": 4.0},
@@ -58,6 +64,18 @@ def say(rt: MissionSim, text: str, client: OllamaClient | None = None, steps: in
 ])
 def test_quick_phrases(text, expected):
     assert V.quick_parse(text) == expected
+
+
+def test_climbing_high_by_voice():
+    rt = MissionSim(get_preset("basic"))
+    say(rt, "go to 12 metres", steps=200)  # on the ground: becomes a take-off to 12 m
+    assert rt.pilot.sp.alt_m == pytest.approx(12.0)
+    say(rt, "much higher", steps=1)
+    assert rt.pilot.sp.alt_m == pytest.approx(22.0)
+    say(rt, "fly at 45 metres", steps=1)
+    assert rt.pilot.sp.alt_m == pytest.approx(45.0)
+    with pytest.raises(V.VoiceError):
+        V.check({"action": "height", "height_m": 80}, {"flying": True, "scene": "free", "race": None})
 
 
 def test_quick_commands_fly_the_drone_without_any_ai():

@@ -6,7 +6,7 @@
 ```
  🎙 microphone ─> Whisper "small" (offline, CPU, ~1 s) ─> text
    "stop" anywhere? ───────────────> hover NOW (and cancel anything waiting)
-   a fixed phrase? ────────────────> do it at once (no AI)          take off · land · hover · go left 3 m · turn right · come home
+   a fixed phrase? ────────────────> do it at once (no AI)          take off · land · hover · go left 3 m · higher · go to 20 m · turn right · come home
    anything else ──> local AI (Gemma) picks ACTIONS from a list of what exists right now
                      ─> code checks every name and number ─> small moves: do it
                                                            ─> routes / new worlds: "Say go to start"
@@ -36,6 +36,9 @@
 | "fly to the moon" / "do a flip" | "Sorry, I can't do that" |
 
 Speech recognition itself wasn't tested with a real voice on this machine (no microphone in the test setup). Try it, and if a word is often misheard, it can be added to Whisper's word list (`VOCABULARY` in `backend/voice/stt.py`).
+
+## How high?
+The drone flies up to **50 m above home**. "Go up" / "higher" climbs 3 m, "a bit higher" 1 m, "much higher" 10 m, "go up 15" exactly 15 m more; "go to 30 metres" / "fly at 30 m" / "come down to 5" sets the height itself (on the ground, it takes off to that height). Over 🏔 hills, the height is still from home, not from the ground below (lesson 29).
 
 ## Try it
 Fly view → **🎙 Talk** (top of the controls). Press, speak, press again (it stops by itself after 8 s), or type in the box. The first command takes a few seconds longer while Whisper loads. Untick 🔊 to stop it talking back.

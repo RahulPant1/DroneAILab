@@ -32,7 +32,7 @@ PENDING_EXPIRES_S = 60.0
 MAX_ACTIONS = 3
 MOVE_LIMITS_M = (0.2, 20.0)
 TURN_LIMITS_DEG = (5.0, 360.0)
-HEIGHT_LIMITS_M = (0.5, 20.0)
+HEIGHT_LIMITS_M = (0.5, 50.0)  # 50 m = the pilot's ceiling (MAX_FLY_ALT_M)
 WIND_LIMIT_M_S = 10.0
 DIRECTIONS = ("forward", "back", "left", "right", "up", "down")
 COMPASS = {"north": 90.0, "east": 0.0, "south": 270.0, "west": 180.0}  # where the wind blows FROM -> toward = +180
@@ -45,6 +45,7 @@ ACTIONS: dict[str, tuple[str, bool]] = {
     "land": ("land where it is", False),
     "takeoff": ("take off (height_m, default 2)", False),
     "move": ("fly a short distance: direction forward/back/left/right/up/down, metres", False),
+    "height": ("climb or descend to an exact height above home (height_m, up to 50)", False),
     "turn": ("turn on the spot: direction left/right, degrees", False),
     "go_home": ("fly back over the start point", False),
     "free_flight": ("empty world: no course, no race", True),
@@ -129,6 +130,8 @@ def normalise(text: str) -> str:
 
 STOP_RE = re.compile(r"\b(stop|freeze|halt|abort|emergency)\b")
 _NUM = r"(\d+(?:\.\d+)?)"
+UP_STEP_M = 3.0  # "go up" / "higher" with no number
+BIG_STEP_M = 10.0  # "much higher"
 _UNIT = r"(?:\s*(?:m|metre|metres|meter|meters))?"
 QUICK = [
     (re.compile(r"^(?:hover|wait|stay|hold)(?: there| here| still| position)?$"), lambda m: {"action": "hover"}),
@@ -137,7 +140,13 @@ QUICK = [
      lambda m: {"action": "takeoff", **({"height_m": float(m.group(1))} if m.group(1) else {})}),
     (re.compile(rf"^(?:go|fly|move)? ?(up|down|forward|forwards|ahead|back|backward|backwards|left|right)(?: by)?(?: {_NUM}{_UNIT})?$"),
      lambda m: {"action": "move", "direction": _dir(m.group(1)),
-                "metres": float(m.group(2)) if m.group(2) else (1.0 if m.group(1) in ("up", "down") else 2.0)}),
+                "metres": float(m.group(2)) if m.group(2) else (UP_STEP_M if m.group(1) in ("up", "down") else 2.0)}),
+    (re.compile(r"^(?:go |fly |climb |move |get )?(?:((?:a|1) bit|(?:a|1) little|slightly)|(much|way|(?:a|1) lot|loads|really)) ?(higher|lower)$|^(?:go |fly |climb |move |get )?(higher|lower)$"),
+     lambda m: {"action": "move", "direction": "up" if (m.group(3) or m.group(4)) == "higher" else "down",
+                "metres": 1.0 if m.group(1) else (BIG_STEP_M if m.group(2) else UP_STEP_M)}),
+    (re.compile(rf"^(?:go|fly|climb|rise|descend|come down|drop|move)(?: up| down)? to {_NUM}{_UNIT}(?: high| up| height| altitude)?$"
+                rf"|^(?:height|altitude) {_NUM}{_UNIT}$|^fly at {_NUM}{_UNIT}(?: high)?$"),
+     lambda m: {"action": "height", "height_m": float(m.group(1) or m.group(2) or m.group(3))}),
     (re.compile(rf"^(?:turn|rotate|spin|yaw) (left|right)(?: by)?(?: {_NUM})?(?: degrees?)?$"),
      lambda m: {"action": "turn", "direction": m.group(1), "degrees": float(m.group(2)) if m.group(2) else 90.0}),
     (re.compile(r"^(?:turn|spin) (?:around|round)$"), lambda m: {"action": "turn", "direction": "left", "degrees": 180.0}),
@@ -325,6 +334,9 @@ def check(action: dict, ctx: dict) -> dict:
         if d not in ("left", "right"):
             raise VoiceError("Turn left or right?")
         a.update(direction=d, degrees=_clamp(action.get("degrees", 90.0), *TURN_LIMITS_DEG, "the angle in degrees"))
+    elif name == "height":
+        h = _clamp(action.get("height_m"), *HEIGHT_LIMITS_M, "the height in metres")
+        a = {"action": "takeoff", "height_m": h} if not ctx["flying"] else {"action": "height", "height_m": h}
     elif name == "takeoff":
         a["height_m"] = _clamp(action.get("height_m", 2.0), *HEIGHT_LIMITS_M, "the height in metres")
     elif name == "course":
@@ -374,6 +386,8 @@ def describe(a: dict) -> str:
         return f"turn {a['direction']} {a['degrees']:g}° on the spot"
     if n == "takeoff":
         return f"take off to {a['height_m']:g} m"
+    if n == "height":
+        return f"fly at {a['height_m']:g} m"
     if n == "course":
         return f"load the course '{SCENARIOS[a['course']]['title']}'"
     if n == "mission":
@@ -403,7 +417,7 @@ def to_messages(a: dict, session) -> list[dict]:
         return [{"cmd": n}]
     if n == "takeoff":
         return [{"cmd": "takeoff", "alt_m": a["height_m"]}]
-    if n in ("move", "turn", "go_home"):
+    if n in ("move", "turn", "go_home", "height"):
         sp = session.pilot.sp
         est = session.sim.estimate.pos_m
         x, y, alt, yaw = float(est[0]), float(est[1]), float(sp.alt_m), float(sp.yaw_rad)
@@ -416,6 +430,8 @@ def to_messages(a: dict, session) -> list[dict]:
             else:
                 ang = yaw + {"forward": 0.0, "left": math.pi / 2, "back": math.pi, "right": -math.pi / 2}[d]
                 x, y = x + m * math.cos(ang), y + m * math.sin(ang)
+        elif n == "height":
+            alt = a["height_m"]
         elif n == "turn":
             yaw += math.radians(a["degrees"]) * (1 if a["direction"] == "left" else -1)
         else:
@@ -459,6 +475,8 @@ def short_word(a: dict) -> str:
     n = a["action"]
     if n == "move":
         return {"forward": "Forward!", "back": "Back!", "left": "Left!", "right": "Right!", "up": "Up!", "down": "Down!"}[a["direction"]]
+    if n == "height":
+        return f"{a['height_m']:g} metres!"
     if n == "turn":
         return "Turning around!" if a["degrees"] >= 170 else f"Turning {a['direction']}!"
     return {"takeoff": "Taking off!", "land": "Landing!", "hover": "Stopping!", "go_home": "Going home!",

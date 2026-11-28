@@ -22,7 +22,7 @@ const SCENES: { id: string; icon: string; label: string; run: () => void }[] = [
 // The keys, and what to say for the same thing (one word is enough; add a number for metres: "left 3")
 const CHEATS: [string, string][] = [
   ['T', 'take off'], ['W ↑', 'forward'], ['S ↓', 'back'], ['A ←', 'left'], ['D →', 'right'], ['R', 'up'], ['F', 'down'],
-  ['Q', 'turn left'], ['E', 'turn right'], ['H', 'stop'], ['L', 'land'], ['', 'come home'], ['', 'turn around'],
+  ['Q', 'turn left'], ['E', 'turn right'], ['H', 'stop'], ['L', 'land'], ['', 'much higher'], ['', 'go to 20 metres'], ['', 'come home'], ['', 'turn around'],
 ];
 
 function toggleFullscreen() {
