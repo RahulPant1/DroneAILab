@@ -107,6 +107,10 @@ class QuadcopterPhysics:
         # Motor top speed relative to its rating. A battery model sets this from its voltage each step (speed is
         # roughly Kv x volts); 1.0 = no battery model = always the rated speed.
         self.voltage_scale = 1.0
+        # Ground height under a point (m above home), or None = the flat plane z = 0 (the default, unchanged).
+        # A Terrain (sim/terrain.py) sets this, so the drone lands on hillsides and can fly into them.
+        self.ground_height_fn = None
+        self.last_impact_m_s = 0.0  # speed at the most recent touch-down (a gentle landing is < ~1 m/s)
 
     def motor_speed_command(self, motor_pct: np.ndarray) -> np.ndarray:
         """Convert motor % (0-100) into a target spin speed.
@@ -185,8 +189,10 @@ class QuadcopterPhysics:
 
         # 8. Touch-down: stop at the ground, no bounce. We level the drone (keeping its heading),
         #    because tipping over is out of scope for this simple model.
-        if state.pos_m[2] < 0.0:
-            state.pos_m[2] = 0.0
+        ground_z = 0.0 if self.ground_height_fn is None else self.ground_height_fn(state.pos_m[0], state.pos_m[1])
+        if state.pos_m[2] < ground_z:
+            self.last_impact_m_s = float(np.linalg.norm(state.vel_m_s))
+            state.pos_m[2] = ground_z
             state.vel_m_s = np.zeros(3)
             state.rate_rad_s = np.zeros(3)
             _, _, yaw = quat_to_euler(state.quat)

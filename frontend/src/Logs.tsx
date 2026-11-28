@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import uPlot from 'uplot';
+import PreflightView, { checkParamFile, type PreflightReport } from './Preflight';
 import 'uplot/dist/uPlot.min.css';
 
 interface LogItem {
@@ -37,6 +38,8 @@ interface Analysis {
   timeline: { t: number; kind: string; text: string }[];
   timeline_total: number;
   charts: Record<string, LogChartData>;
+  fix_first: { id: string; title: string; status: 'warn' | 'bad'; action: string }[];
+  preflight: PreflightReport | null;
 }
 interface LogChartData {
   labels: string[];
@@ -84,6 +87,17 @@ export default function Logs({ initialId }: { initialId: string | null }) {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+  const paramInput = useRef<HTMLInputElement>(null);
+  const [pre, setPre] = useState<{ name: string; report: PreflightReport } | null>(null);
+
+  const checkParams = async (file: File) => {
+    setError('');
+    try {
+      setPre({ name: file.name, report: await checkParamFile(file) });
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    }
+  };
 
   const refresh = () =>
     fetch('/api/logs').then((r) => jsonOrError<{ logs: LogItem[] }>(r)).then((r) => {
@@ -145,6 +159,12 @@ export default function Logs({ initialId }: { initialId: string | null }) {
         <p className="hint">ArduPilot writes a detailed log (.BIN) every flight. The simulator's appear here; you can also upload one from a real drone.</p>
         <button onClick={() => fileInput.current?.click()} title="An ArduPilot DataFlash log (.BIN), up to 100 MB. It stays on this computer.">⬆ Upload a .BIN log</button>
         <input ref={fileInput} type="file" accept=".bin,.BIN" hidden onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
+        <button onClick={() => paramInput.current?.click()}
+          title="Before the first flight: a parameter file saved from QGroundControl (.params) or Mission Planner (.param). Checks calibrations, failsafes, RTL switch, out-of-date names... It is only read, never stored.">
+          ✈ Pre-flight check (.params)
+        </button>
+        <input ref={paramInput} type="file" accept=".params,.param,.parm,.txt" hidden
+          onChange={(e) => { if (e.target.files?.[0]) checkParams(e.target.files[0]); e.target.value = ''; }} />
         <ul>
           {logs.map((l) => (
             <li key={l.id}>
@@ -159,8 +179,14 @@ export default function Logs({ initialId }: { initialId: string | null }) {
       </aside>
       <section className="logs-main">
         {error && <p className="error">{error}</p>}
-        {busy && <p>Reading the log…</p>}
-        {analysis && (
+        {pre && (
+          <>
+            <button className="link" onClick={() => setPre(null)}>← back to the log</button>
+            <PreflightView report={pre.report} title={`Pre-flight check: ${pre.name}`} />
+          </>
+        )}
+        {!pre && busy && <p>Reading the log…</p>}
+        {!pre && analysis && (
           <>
             <div className="row">
               <h2>{STATUS_ICON[analysis.verdict]} {analysis.overview.file}</h2>
@@ -170,6 +196,12 @@ export default function Logs({ initialId }: { initialId: string | null }) {
                 top speed {analysis.overview.max_ground_speed_m_s ?? '–'} m/s · modes {analysis.overview.modes_used.join(' → ') || '–'}
               </span>
             </div>
+            {analysis.fix_first?.length > 0 && (
+              <div className="fix-first">
+                <b>Fix these before the next flight:</b>
+                <ol>{analysis.fix_first.map((f) => <li key={f.id}>{STATUS_ICON[f.status]} <b>{f.title}</b>: {f.action}</li>)}</ol>
+              </div>
+            )}
             <table className="checks">
               <thead><tr><th></th><th>Check</th><th>Measured</th><th>Healthy if</th></tr></thead>
               <tbody>
@@ -203,6 +235,8 @@ export default function Logs({ initialId }: { initialId: string | null }) {
                 </div>
               )}
             </div>
+
+            {analysis.preflight && <PreflightView report={analysis.preflight} title="Its parameters (from the log)" />}
 
             <h3>Timeline</h3>
             <ul className="timeline">

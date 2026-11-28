@@ -1,6 +1,7 @@
 // 🛠 Drone Builder: pick parts, see whether it flies and for how long, then fly it (on its own battery).
 
 import { useEffect, useState } from 'react';
+import PreflightView, { type PreflightReport } from './Preflight';
 import { sim } from './sim';
 
 interface Catalog {
@@ -45,6 +46,12 @@ export default function Builder({ onClose, onLearn }: { onClose: () => void; onL
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState('');
   const [drain, setDrain] = useState(1);
+  const [pre, setPre] = useState<PreflightReport | null>(null);
+  const preflight = async () => {
+    const r = await fetch('/api/preflight/builder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ parts }) });
+    if (r.ok) setPre(await r.json());
+    else setError(`Pre-flight check failed (HTTP ${r.status})`);
+  };
 
   useEffect(() => {
     fetch('/api/builder/parts').then((r) => r.json()).then((c: Catalog) => {
@@ -197,8 +204,13 @@ export default function Builder({ onClose, onLearn }: { onClose: () => void; onL
             ⬇ Parameters (QGroundControl)
           </button>
           <button disabled={!r} onClick={() => download('mp')} title="The same, for Mission Planner or MAVProxy">⬇ (Mission Planner)</button>
+          <button disabled={!r} onClick={() => (pre ? setPre(null) : preflight())}
+            title="What the parameter file sets, and what is still left to do on the real flight controller before the first flight">
+            ✈ {pre ? 'Hide the' : 'Show the'} first-flight checklist
+          </button>
           <button className="link" onClick={() => onLearn('28-digital-twin')}>📖 Learn: from sim to real drone</button>
         </div>
+        {pre && <PreflightView report={pre} title="First-flight checklist for this build" />}
       </article>
     </div>
   );

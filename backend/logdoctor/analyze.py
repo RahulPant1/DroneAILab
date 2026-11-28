@@ -21,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import spectrum
+from . import preflight, spectrum
 
 # ---- ArduPilot code tables (from AP_Logger.h, ArduPilot 4.7) ---------------------------------------
 
@@ -81,7 +81,7 @@ BOOT_NOISE = re.compile(r"^(ArduCopter V|[0-9a-f]{32}$|Param space used|RC Proto
 # ---- reading --------------------------------------------------------------------------------------
 
 WANTED = ("MODE", "MSG", "ERR", "EV", "VIBE", "XKF4", "GPS", "ATT", "CTUN", "PSCN", "PSCE", "BAT", "RCOU",
-          "POS", "SIM", "PARM", "ISBH", "ISBD")
+          "POS", "SIM", "PARM", "ISBH", "ISBD", "MAG", "ANG")
 
 
 def read_log(path: str | Path) -> dict[str, list[dict]]:
@@ -315,6 +315,86 @@ def analyze_messages(L: dict[str, list[dict]], name: str = "log") -> dict:
                   + ("; battery failsafe triggered" if fs else ""), "no failsafe, sag < 1.5 V",
                   "Voltage drop under load. A big sag means a tired or undersized battery; the battery failsafe "
                   "(BATT_FS_LOW_ACT) brings the drone home before it's too late.")
+    # 8b. Battery per cell (+ internal resistance when current is logged)
+    if bat:
+        tb = _col(bat, "t")
+        v_all = _col(bat, "Volt")
+        good = v_all > 0.5
+        if good.any():
+            cells = max(1, int(round(float(np.nanmax(v_all[good])) / 4.0)))
+            fly = _flying_mask(tb, armed_spans, ctun) & good
+            v_load = v_all[fly] if fly.any() else v_all[good]
+            per = float(np.nanmin(v_load)) / cells
+            r_txt, r_cell = "", None
+            if "Curr" in bat[0]:
+                cur = _col(bat, "Curr")[fly if fly.any() else good]
+                ok_i = np.isfinite(cur)
+                if ok_i.sum() > 20 and float(np.nanstd(cur[ok_i])) > 1.0:
+                    slope = np.polyfit(cur[ok_i], v_load[ok_i], 1)[0]  # volts per amp (negative)
+                    r_cell = max(0.0, -slope) / cells * 1000.0
+                    r_txt = f", internal resistance ≈ {r_cell:.0f} mΩ per cell"
+            st = BAD if per < 3.3 else WARN if per < 3.5 or (r_cell is not None and r_cell > 25) else OK
+            check("battery_cells", "Battery per cell", st, f"{cells}S, lowest {per:.2f} V per cell under load{r_txt}",
+                  "≥ 3.5 V per cell in flight; < 25 mΩ per cell",
+                  "LiPo cells are damaged below about 3.3 V under load. Internal resistance (voltage drop per amp) "
+                  "grows as a pack ages: a tired pack sags more and gives a shorter flight.")
+    # 8c. Compass interference: does the magnetic field change with throttle?
+    mag = L["MAG"]
+    if mag and ctun and "ThO" in ctun[0]:
+        tm = _col(mag, "t")
+        fly = _flying_mask(tm, armed_spans, ctun)
+        if fly.sum() > 30:
+            field = np.sqrt(sum(_col(mag, k) ** 2 for k in ("MagX", "MagY", "MagZ")))[fly]
+            thr = np.interp(tm[fly], _col(ctun, "t"), _col(ctun, "ThO"))
+            if float(np.ptp(thr)) >= 0.1:
+                slope = np.polyfit(thr, field, 1)[0]  # mGauss per unit throttle
+                pct = abs(slope) / float(np.median(field)) * 100.0  # change at full throttle, like COMPASSMOT
+                st = BAD if pct > 60 else WARN if pct > 30 else OK
+                check("compass_motor", "Compass interference from the motors", st,
+                      f"field changes {pct:.0f} % from idle to full throttle", "< 30 % (ArduPilot's compassmot guide)",
+                      "Current in the power wires makes its own magnetic field. If the compass sees it, the heading "
+                      "swings with throttle and the drone circles ('toilet-bowls') in Loiter. Move the compass away "
+                      "from the power wiring (a GPS mast), twist the battery leads, or run COMPASSMOT.")
+            else:
+                check("compass_motor", "Compass interference from the motors", INFO,
+                      f"throttle only varied {np.ptp(thr) * 100:.0f} %", "needs ≥ 10 % throttle change",
+                      "Climb and descend a few times in one flight so the check can compare low and high throttle.")
+    # 8d. Motors fighting each other on yaw (quad X: motors 1, 2 spin one way, 3, 4 the other)
+    if rcou and n_motors == 4:
+        t = _col(rcou, "t")
+        fly = _flying_mask(t, armed_spans, ctun)
+        if fly.any():
+            m = [float(np.nanmean(_col(rcou, f"C{i}")[fly])) for i in range(1, 5)]
+            diff = (m[0] + m[1]) / 2 - (m[2] + m[3]) / 2
+            st = BAD if abs(diff) > 100 else WARN if abs(diff) > 50 else OK
+            pair = "1 and 2 (counter-clockwise props)" if diff > 0 else "3 and 4 (clockwise props)"
+            check("motor_yaw", "Motors fighting on yaw", st, f"motors {pair} work {abs(diff):.0f} µs harder",
+                  "< 50 µs", "To hold its heading, one pair of motors keeps working harder than the other: usually "
+                  "motors twisted on their arms, or a frame that twists. It wastes battery and leaves less margin "
+                  "to turn. Check that every motor sits straight.")
+    # 8e. Wobble: does the attitude error oscillate (tuning too aggressive)?
+    #     ArduCopter 4.7: ATT is always 10 Hz; the controller's own ANG is at the loop rate with LOG_BITMASK bit 0.
+    src = att
+    if L["ANG"] and att and len(L["ANG"]) > 1.5 * len(att):
+        src = L["ANG"]
+    if src:
+        t = _col(src, "t")
+        fly = _flying_mask(t, armed_spans, ctun)
+        osc = _oscillation(t, _col(src, "DesRoll") - _col(src, "Roll"), _col(src, "DesPitch") - _col(src, "Pitch"), fly)
+        log_hz = 1.0 / float(np.median(np.diff(t))) if len(t) > 2 else 0.0
+        if osc:
+            amp, f_hz = osc
+            st = BAD if amp > 0.4 else WARN if amp > 0.15 else OK
+            advice = ("Above about 5 Hz it's usually the D term or noisy gyro filtering; slower wobble is too much P. "
+                      "Lower ATC_RAT_RLL_P / ATC_RAT_PIT_P (and D) by 10-20 %, or run AUTOTUNE on a calm day.")
+            slow_log = log_hz < 50
+            check("wobble", "Wobble (attitude oscillation)", st,
+                  f"{amp:.2f}° RMS, strongest at {f_hz:.1f} Hz (attitude logged at {log_hz:.0f} Hz)",
+                  "< 0.15° RMS above 3 Hz", "Overshooting and correcting again and again: the rate loop is tuned too "
+                  "aggressively for this airframe. " + advice + (
+                      " This log has attitude at only 10 Hz, so fast wobble (5-20 Hz, the usual kind) is invisible: "
+                      "for tuning flights add 1 to LOG_BITMASK (ATTITUDE_FAST)." if slow_log else ""))
+
     # 9. Failsafes, crashes, errors
     trig = [e for e in errors if "TRIGGERED" in e["text"] or "crash" in e["text"].lower()
             or "loss of control" in e["text"]]
@@ -359,7 +439,11 @@ def analyze_messages(L: dict[str, list[dict]], name: str = "log") -> dict:
         charts["truth"] = {"labels": ["belief vs truth (m)"], "data": truth_chart}
 
     worst = BAD if any(c["status"] == BAD for c in checks) else WARN if any(c["status"] == WARN for c in checks) else OK
+    params = preflight.params_from_log(L["PARM"])
+    pre = preflight.check(params) if len(params) >= 100 else None  # real logs carry every parameter
     return {
+        "fix_first": fix_first(checks),
+        "preflight": pre,
         "overview": overview,
         "verdict": worst,
         "checks": checks,
@@ -367,6 +451,73 @@ def analyze_messages(L: dict[str, list[dict]], name: str = "log") -> dict:
         "timeline_total": len(timeline),
         "charts": charts,
     }
+
+
+# What to do about each check, most important first (safety, then things that break hardware, then quality).
+ACTIONS = {
+    "failsafes": "Find out why each failsafe triggered (timeline) before flying again.",
+    "motors": "A motor at its limit or one working much harder: check the props, the centre of gravity, that motor and its ESC.",
+    "compass_motor": "Move the compass away from the power wiring (GPS mast, twisted battery leads), or run COMPASSMOT.",
+    "vibration": "Balance or replace the props, tighten the motors, soft-mount the flight controller.",
+    "gyro_noise": "Set the harmonic notch filter as suggested (lesson 25).",
+    "ekf": "A sensor disagreed with the EKF: look at which one (GPS, compass, baro) and what happened at that moment.",
+    "battery_cells": "Land earlier (raise BATT_LOW_VOLT) or replace a tired pack.",
+    "battery": "Check the pack and the low-battery failsafe settings.",
+    "wobble": "Lower the rate P/D gains 10-20 % or run AUTOTUNE on a calm day.",
+    "motor_yaw": "Straighten the motors on their arms (all perfectly vertical).",
+    "attitude": "The drone couldn't tilt as asked: check tuning, motors and wind.",
+    "gps": "Fly where the sky is open, and move the GPS away from cameras / video transmitters.",
+    "altitude": "Altitude wandered: check thrust margin and vibration.",
+    "position": "Position wandered: wind, compass or GPS. Check those checks first.",
+    "truth": "The EKF believed something false: see the EKF and GPS checks.",
+}
+PRIORITY = list(ACTIONS)
+
+
+def fix_first(checks: list[dict], n: int = 3) -> list[dict]:
+    """The few things to fix before the next flight: worst status first, then by importance."""
+    bad = [c for c in checks if c["status"] in (BAD, WARN) and c["id"] in ACTIONS]
+    bad.sort(key=lambda c: (c["status"] != BAD, PRIORITY.index(c["id"])))
+    return [{"id": c["id"], "title": c["title"], "status": c["status"], "action": ACTIONS[c["id"]]} for c in bad[:n]]
+
+
+WOBBLE_FROM_HZ = 3.0  # wind, pilot and manoeuvres are slower than this; a ringing controller is faster
+
+
+def _oscillation(t: np.ndarray, err_roll: np.ndarray, err_pitch: np.ndarray, fly: np.ndarray) -> tuple[float, float] | None:
+    """(RMS of the attitude error above WOBBLE_FROM_HZ in degrees, the strongest frequency in Hz), or None.
+
+    Each continuous stretch of flying is checked on its own (mean removed); the power above 3 Hz is added up
+    (Parseval: the RMS of that band). On ArduCopter SITL: 0.01° with default gains, 0.49° at 23 Hz with the
+    roll/pitch rate P and D x 3.5 (docs/results/hardware-checks.md)."""
+    if fly.sum() < 50:
+        return None
+    dt = float(np.median(np.diff(t[fly])))
+    if not 0 < dt < 0.2 or 1.0 / (2 * dt) <= WOBBLE_FROM_HZ:
+        return None
+    idx = np.flatnonzero(fly)
+    cuts = np.flatnonzero(np.diff(idx) > 1) + 1
+    best = None
+    for e_all in (err_roll, err_pitch):
+        power, n_total, peak = 0.0, 0, (0.0, 0.0)
+        for seg in np.split(idx, cuts):
+            if len(seg) < 32:
+                continue
+            e = np.nan_to_num(e_all[seg])
+            e = e - e.mean()
+            X = np.fft.rfft(e)
+            f = np.fft.rfftfreq(len(e), dt)
+            band = f >= WOBBLE_FROM_HZ
+            p = np.abs(X[band]) ** 2
+            power += 2.0 * float(p.sum()) / len(e)
+            n_total += len(e)
+            if p.size and float(p.max()) / len(e) > peak[0]:
+                peak = (float(p.max()) / len(e), float(f[band][np.argmax(p)]))
+        if n_total:
+            rms = math.sqrt(power / n_total)
+            if best is None or rms > best[0]:
+                best = (rms, peak[1])
+    return best
 
 
 def _frame_name(parms: list[dict]) -> str | None:

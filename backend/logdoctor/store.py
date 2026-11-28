@@ -76,11 +76,15 @@ def save_upload(filename: str, data: bytes) -> str:
     return f"upload-{stem}"
 
 
+ANALYSIS_VERSION = 2  # bump when the checks change, so old cached reports are redone (2 = real-hardware checks)
+
+
 def cached_analysis(log_id: str, analyze) -> dict:
-    """analyze(path), cached on disk per file version (a SITL log can still grow while that SITL runs)."""
+    """analyze(path), cached on disk per file version (a SITL log can still grow while that SITL runs) and per
+    version of the checks."""
     p = path_for(log_id)
     st = p.stat()
-    key = CACHE_DIR / f"{log_id}-{st.st_size}-{int(st.st_mtime)}.json"
+    key = CACHE_DIR / f"{log_id}-{st.st_size}-{int(st.st_mtime)}-v{ANALYSIS_VERSION}.json"
     if key.is_file():
         return json.loads(key.read_text())
     result = analyze(p)

@@ -266,3 +266,5 @@ Simulation only. No real-drone interfaces (no MAVLink to hardware, no serial/USB
 5. If the PRD conflicts with the reality you find, **stop and ask**. Don't silently work around it.
 6. Phase-end report: what was built, how to run it, demo script, test results, RAM/disk used, known limitations, what the user learned, and the code walkthrough.
 7. Never start the next phase without explicit user approval.
+
+Then (2026-11-28) realistic offline scenery, terrain in the physics (built-in hills and downloaded real places, offline afterwards), a pre-flight parameter check, and log-doctor checks for real hardware (compass interference, motors fighting on yaw, wobble, battery per cell) verified on ArduCopter SITL with each fault built in. Simulation only still holds.

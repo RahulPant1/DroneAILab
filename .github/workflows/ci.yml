@@ -62,7 +62,7 @@ jobs:
       - name: Fly it (take-off, fly-to, mission, RTL, the DroneLab panel, offboard trajectory, companion computer, EKF replay, vibration + notch, fault injection, log doctor)
         env:
           DRONELAB_SITL: "1"
-        run: .venv/bin/pytest -q backend/tests/test_sitl.py backend/tests/test_companion.py backend/tests/test_ekf.py backend/tests/test_vibration.py backend/tests/test_twin.py backend/tests/test_faults.py backend/tests/test_logdoctor.py
+        run: .venv/bin/pytest -q backend/tests/test_sitl.py backend/tests/test_companion.py backend/tests/test_ekf.py backend/tests/test_vibration.py backend/tests/test_twin.py backend/tests/test_preflight.py backend/tests/test_faults.py backend/tests/test_logdoctor.py
       - name: Keep the SITL logs if something failed
         if: failure()
         uses: actions/upload-artifact@v4

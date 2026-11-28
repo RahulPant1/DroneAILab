@@ -326,6 +326,7 @@ function MissionBar({ s, offline, onLearn }: { s: SimState | null; offline: bool
             {Object.entries(scenarios).map(([id, sc]) => <option key={id} value={id}>{sc.title}</option>)}
           </select>
         </label>
+        <TerrainPicker offline={offline} />
         {farm && (
           <>
             <button className="primary" disabled={offline} onClick={() => setPlanning(true)} title="Say what to do (AI) or build a task list; see the route and safety checks; then fly">
@@ -630,4 +631,28 @@ function BatteryBar({ s, offline, onLearn }: { s: SimState | null; offline: bool
       <button className="link" onClick={() => onLearn('16-battery-and-builder')}>📖 Learn: batteries</button>
     </div>
   );
+}
+
+/** 🏔 Fly over hills or a real place downloaded with `python -m backend.terrain_fetch` (replaces any course). */
+export function TerrainPicker({ offline }: { offline: boolean }) {
+  const { terrain } = useSimUi();
+  const places = useTerrains();
+  return (
+    <label className="inline" title="Real ground instead of a flat plane: altitude is measured from HOME, like a real barometer, so fly over a hill at 10 m and you may hit it. Add your own place with: .venv/bin/python -m backend.terrain_fetch --lat .. --lon .. --name myfield">
+      🏔 Terrain
+      <select value={terrain?.id ?? ''} disabled={offline} onChange={(e) => sim.send('terrain', { id: e.target.value || null })}>
+        <option value="">Flat ground</option>
+        {places.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+      </select>
+      {terrain && <span className="muted">ground {terrain.min_m.toFixed(0)}…{terrain.max_m.toFixed(0)} m vs home</span>}
+    </label>
+  );
+}
+
+export function useTerrains(): { id: string; title: string; downloaded: boolean }[] {
+  const [places, setPlaces] = useState<{ id: string; title: string; downloaded: boolean }[]>([]);
+  useEffect(() => {
+    fetch('/api/terrain').then((r) => r.json()).then(setPlaces).catch(() => setPlaces([]));
+  }, []);
+  return places;
 }

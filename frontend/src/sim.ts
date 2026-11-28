@@ -47,6 +47,7 @@ export interface SimState {
   message: string;
   mission: MissionStatus | null; // set while the mission autopilot is flying
   race: RaceStatus | null; // set while a rings-race track is loaded
+  terrain_agl_m?: number; // 🏔 height above the ground below (only over terrain)
   agile: AgileStatus | null; // ✈ race autopilot flying (null = off)
   explore: ExploreStatus | null; // 🗺 autonomous exploration (kept after it ends, to show the map)
   formation: FormationStatus | null; // set while wingmen are flying with you
@@ -374,6 +375,26 @@ export interface LogEntry {
   at: number;
 }
 
+/** 🏔 Hills or a real downloaded place (backend/sim/terrain.py). Heights in m above home, rows south -> north. */
+export interface TerrainImageTile { file: string; x_min_m: number; x_max_m: number; y_min_m: number; y_max_m: number }
+export interface TerrainInfo {
+  id: string; title: string; rows: number; cols: number;
+  x_min_m: number; y_min_m: number; cell_m: number; width_m: number; depth_m: number;
+  min_m: number; max_m: number; heights_b64: string;
+  image: { tiles: TerrainImageTile[]; metres_per_pixel: number } | null;
+  attribution: string; info: Record<string, unknown>;
+}
+
+export type Scenery = 'real' | 'simple';
+function loadScenery(): Scenery {
+  try {
+    const v = localStorage.getItem('dronelab.scenery');
+    return v === 'simple' ? 'simple' : 'real';
+  } catch {
+    return 'real';
+  }
+}
+
 type Status = 'connecting' | 'open' | 'closed';
 type Listener = () => void;
 
@@ -382,6 +403,8 @@ class SimConnection {
   config: DroneConfig | null = null;
   course: Course | null = null;
   race: RaceTrack | null = null;
+  terrain: TerrainInfo | null = null; // 🏔 hills / a real place (null = flat ground)
+  scenery: Scenery = loadScenery(); // 🌳 grass, sky, trees and shadows, or the plain grid
   cropmaps: CropMap[] = []; // 🌱 from the last survey flown live
   voice: VoiceReply | null = null; // 🎙 the last voice / typed command's answer (seq goes up with each)
   voiceSeq = 0;
@@ -425,9 +448,20 @@ class SimConnection {
       if (msg.type === 'config') this.config = msg.config as DroneConfig;
       if (msg.course !== undefined) this.course = msg.course as Course | null;
       if (msg.race !== undefined) this.race = msg.race as RaceTrack | null;
+      if (msg.terrain !== undefined) this.terrain = msg.terrain as TerrainInfo | null;
       if (msg.message) this.addLog(msg.type === 'error' ? 'error' : 'info', msg.message);
       this.bump();
     };
+  }
+
+  setScenery(v: Scenery): void {
+    this.scenery = v;
+    try {
+      localStorage.setItem('dronelab.scenery', v);
+    } catch {
+      /* private window: just not remembered */
+    }
+    this.bump();
   }
 
   send(cmd: string, args: Record<string, unknown> = {}): void {

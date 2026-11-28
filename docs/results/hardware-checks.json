@@ -1,0 +1,114 @@
+{
+ "clean": {
+  "title": "Nothing wrong",
+  "params": {},
+  "checks": {
+   "compass_motor": {
+    "status": "ok",
+    "value": "field changes 0 % from idle to full throttle"
+   },
+   "wobble": {
+    "status": "ok",
+    "value": "0.01\u00b0 RMS, strongest at 3.1 Hz (attitude logged at 400 Hz)"
+   },
+   "motor_yaw": {
+    "status": "ok",
+    "value": "motors 3 and 4 (clockwise props) work 9 \u00b5s harder"
+   },
+   "battery_cells": {
+    "status": "ok",
+    "value": "3S, lowest 4.20 V per cell under load, internal resistance \u2248 0 m\u03a9 per cell"
+   },
+   "motors": {
+    "status": "ok",
+    "value": "average outputs 1587, 1587, 1595, 1595 \u00b5s (spread 9); at full power 0 % of the time"
+   },
+   "attitude": {
+    "status": "ok",
+    "value": "max 3.7\u00b0, RMS 0.54\u00b0"
+   }
+  },
+  "fix_first": [],
+  "log": "00000138.BIN"
+ },
+ "compass": {
+  "title": "Compass next to the power wires",
+  "params": {
+   "SIM_MAG_MOT_X": 5.0,
+   "SIM_MAG_MOT_Y": 3.0,
+   "SIM_MAG_MOT_Z": -8.0
+  },
+  "checks": {
+   "compass_motor": {
+    "status": "bad",
+    "value": "field changes 134 % from idle to full throttle"
+   },
+   "wobble": {
+    "status": "ok",
+    "value": "0.01\u00b0 RMS, strongest at 3.0 Hz (attitude logged at 400 Hz)"
+   },
+   "motor_yaw": {
+    "status": "ok",
+    "value": "motors 1 and 2 (counter-clockwise props) work 9 \u00b5s harder"
+   },
+   "battery_cells": {
+    "status": "ok",
+    "value": "3S, lowest 4.20 V per cell under load, internal resistance \u2248 0 m\u03a9 per cell"
+   },
+   "motors": {
+    "status": "ok",
+    "value": "average outputs 1597, 1597, 1587, 1587 \u00b5s (spread 9); at full power 0 % of the time"
+   },
+   "attitude": {
+    "status": "ok",
+    "value": "max 3.2\u00b0, RMS 0.51\u00b0"
+   }
+  },
+  "fix_first": [
+   "compass_motor",
+   "ekf",
+   "position"
+  ],
+  "log": "00000139.BIN"
+ },
+ "wobble": {
+  "title": "Rate gains x 3.5 (over-tuned)",
+  "params": {
+   "ATC_RAT_RLL_P": 0.47250000000000003,
+   "ATC_RAT_PIT_P": 0.47250000000000003,
+   "ATC_RAT_RLL_D": 0.0126,
+   "ATC_RAT_PIT_D": 0.0126
+  },
+  "checks": {
+   "compass_motor": {
+    "status": "ok",
+    "value": "field changes 0 % from idle to full throttle"
+   },
+   "wobble": {
+    "status": "bad",
+    "value": "0.49\u00b0 RMS, strongest at 23.1 Hz (attitude logged at 400 Hz)"
+   },
+   "motor_yaw": {
+    "status": "ok",
+    "value": "motors 1 and 2 (counter-clockwise props) work 6 \u00b5s harder"
+   },
+   "battery_cells": {
+    "status": "ok",
+    "value": "3S, lowest 4.20 V per cell under load, internal resistance \u2248 0 m\u03a9 per cell"
+   },
+   "motors": {
+    "status": "ok",
+    "value": "average outputs 1536, 1535, 1529, 1530 \u00b5s (spread 7); at full power 0 % of the time"
+   },
+   "attitude": {
+    "status": "warn",
+    "value": "max 10.6\u00b0, RMS 2.01\u00b0"
+   }
+  },
+  "fix_first": [
+   "wobble",
+   "attitude"
+  ],
+  "log": "00000140.BIN"
+ }
+}

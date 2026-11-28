@@ -454,3 +454,15 @@ main.play { flex: 1; min-height: 0; display: flex; }
   border: 1px solid #4a5a78; border-radius: 4px; background: #1b2333; }
 .play-cheat kbd:empty { display: none; }
 .play-guess b { color: #ffd166; }
+
+/* 🌳 scenery toggle + map attribution, bottom-left of the 3D view */
+.scene-corner { position: absolute; left: 8px; bottom: 8px; display: flex; gap: 8px; align-items: center; pointer-events: none; z-index: 2; }
+.scene-corner > * { pointer-events: auto; }
+.scenery-toggle { font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(15, 20, 32, 0.7); color: #e5e9f0; border: 1px solid #4a5a78; cursor: pointer; }
+.scene-attrib { position: fixed; right: 8px; bottom: 8px; font-size: 9px; line-height: 1.25; color: #e5e9f0; background: rgba(15, 20, 32, 0.55); padding: 2px 6px; border-radius: 4px; max-width: 230px; }
+
+/* ✈ pre-flight check + 🩺 fix-first box */
+.fix-first { border: 1px solid #ffd166; background: rgba(255, 209, 102, 0.08); border-radius: 6px; padding: 8px 12px; margin: 8px 0; }
+.fix-first ol { margin: 4px 0 0 18px; padding: 0; }
+.preflight { margin: 12px 0; }
+.checks tr.info td { opacity: 0.85; }

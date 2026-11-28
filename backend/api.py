@@ -76,12 +76,13 @@ from .autonomy.mission import PLANNERS, SCENARIOS, MissionError, mission_from_di
 from .sim.environment import EnvConfig
 from .ai.ollama_client import AIError, AIOffline, OllamaClient
 from .experiments import EXPERIMENTS, ExperimentError, get_experiment
-from .sim import builder
+from .sim import builder, terrain
 from .sim.config import GAIN_LIMITS, LIMITS, PRESETS, ConfigError, DroneConfig, get_preset, validate_config
 from .autonomy.live import MissionSim
 from .voice import commands as voice
 from .voice import stt
 from .games.race import TRACKS, load_best_times
+from .logdoctor import preflight
 from .logdoctor import store as logstore
 from .logdoctor.analyze import analyze as analyze_log
 from .logdoctor.explain import explain as explain_log
@@ -303,6 +304,32 @@ async def logs_upload(request: Request) -> dict:
     return {"id": log_id}
 
 
+@app.post("/api/preflight")
+async def preflight_check(request: Request) -> dict:
+    """✈ Pre-flight check of a parameter file (raw text body: QGroundControl .params or Mission Planner .param).
+    Up to 1 MB; it is only read, never stored."""
+    body = await request.body()
+    if len(body) > 1_000_000:
+        raise HTTPException(413, "A parameter file is well under 1 MB.")
+    params = preflight.parse_param_text(body.decode("utf-8", errors="replace"))
+    if not params:
+        raise HTTPException(400, "No parameters found. Save them from QGroundControl (Parameters -> Tools -> Save to "
+                                 "file) or Mission Planner (Config -> Full Parameter List -> Save).")
+    return preflight.check(params, partial=len(params) < 300)  # a full dump from a board has ~1000
+
+
+@app.post("/api/preflight/builder")
+def preflight_builder(body: dict) -> dict:
+    """The pre-flight check on the 🛠 Builder's own starting parameter file (what it sets, and what's left to do)."""
+    from .sim import apparams
+
+    try:
+        design = builder.design(body.get("parts") or {})
+    except builder.DesignError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return preflight.check({name: float(value) for name, value, _ in apparams.params(design)}, partial=True)
+
+
 @app.get("/api/logs/{log_id}/analysis")
 def logs_analysis(log_id: str) -> dict:
     """The 🩺 log doctor's checks, timeline and charts for one log (cached)."""
@@ -386,6 +413,25 @@ def _battery_from(body: dict) -> BatteryConfig | None:
         return BatteryConfig(cells=int(b.get("cells", 3)), capacity_mah=float(b.get("capacity_mah", 3000)))
     except (TypeError, ValueError):
         raise HTTPException(400, "battery needs numbers: cells, capacity_mah.") from None
+
+
+@app.get("/api/terrain")
+def terrain_list() -> list[dict]:
+    """🏔 Places to fly over: the built-in hills + anything downloaded with backend.terrain_fetch."""
+    return terrain.list_terrains()
+
+
+@app.get("/api/terrain/{terrain_id}/image/{name}")
+def terrain_image(terrain_id: str, name: str):
+    """One aerial-image tile of a downloaded place (the 3D view stitches them into the ground texture)."""
+    from fastapi.responses import FileResponse
+
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", terrain_id) or not re.fullmatch(r"[0-9_]+\.(jpg|png)", name):
+        raise HTTPException(400, "Bad name.")
+    f = terrain.TERRAIN_DIR / terrain_id / "image" / name
+    if not f.is_file():
+        raise HTTPException(404, "No such image tile.")
+    return FileResponse(f, headers={"Cache-Control": "max-age=86400"})
 
 
 @app.get("/api/site")
@@ -572,8 +618,13 @@ def handle_message(session: MissionSim, msg) -> dict | None:
             return {"type": "config", "config": session.config.to_dict(), "course": session.course_info(),
                     "race": session.race_info(), "message": "Reset."}
         text = session.command(cmd, **args)
+        if cmd == "terrain":
+            return {"type": "course", "course": None, "race": None, "terrain": session.terrain_info(), "message": text}
         if cmd in ("course", "mission", "race", "plan", "agile", "explore"):
-            return {"type": "course", "course": session.course_info(), "race": session.race_info(), "message": text}
+            out = {"type": "course", "course": session.course_info(), "race": session.race_info(), "message": text}
+            if session.terrain is None:
+                out["terrain"] = None  # a course / race is on flat ground
+            return out
         return {"type": "info", "message": text} if text else None
     except (ConfigError, ValueError, TypeError, KeyError) as exc:
         return {"type": "error", "message": str(exc) if not isinstance(exc, KeyError) else f"Missing {exc}."}

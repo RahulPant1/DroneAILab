@@ -647,3 +647,17 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   refCurrent scaled for 45° (example comment) but SIM_Frame uses it as hover power -> 60 % too much current; QGC needs
   types; AUTOTUNE: sporadic RC override expired -> fell out of AltHold; battery failsafe latched -> couldn't re-arm
   (AUTOTUNE now its own boot); HOME moved on re-arm (measure vs launch point).
+
+## 🌳 Scenery + 🏔 terrain + ✈ pre-flight / hardware checks (2026-11-28, user-approved: "go ahead with A and B first then #3")
+- A: World.tsx (canvas grass, gradient sky dome, fog, instanced trees > 95 m, far hills, sun shadow following the
+  drone; toggle 🌳 Realistic / ▦ Simple, localStorage dronelab.scenery). Offline, no assets.
+- B: sim/terrain.py (grid, home mat flattened 3 m -> 6 m blend), physics.ground_height_fn (None = flat, unchanged),
+  touch-down > 2.5 m/s away from home = crash; WS `terrain` {id}; built-in "hills"; terrain_fetch.py (AWS Terrain
+  Tiles terrarium + EOX Sentinel-2 cloudless 2016 CC BY 4.0, own PNG decoder, --image for your own picture;
+  data/terrain/ gitignored). Tested with CMAC (home 585 m AMSL). Fake trees kept off real places; skirt = border
+  heights pushed outwards (what the physics uses there).
+- #3: logdoctor/preflight.py (param file / log PARM; API /api/preflight, /api/preflight/builder), analyze.py new
+  checks compass_motor, motor_yaw, wobble (attitude error RMS above 3 Hz, ANG when faster than ATT), battery_cells,
+  fix_first; cache versioned. sitl/hardware_check.py: clean 0 % / 0.01°, SIM_MAG_MOT -> 134 % bad, gains x3.5 ->
+  0.49° at 23 Hz bad. Found: 4.7 ATT always 10 Hz (fast = ANG with LOG_BITMASK bit 0); first wobble metric couldn't
+  separate (0.22 vs 0.61); SITL battery doesn't sag.

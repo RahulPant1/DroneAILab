@@ -20,7 +20,9 @@ from backend.sim.config import DroneConfig
 from backend.sim.control import Setpoint
 from backend.sim.physics import State
 from backend.sim.pilot import Pilot
+from backend.sim import terrain
 from backend.sim.runner import RealtimeSim
+from backend.sim.terrain import Terrain
 
 from backend.games.race import TRACKS, Race
 
@@ -46,6 +48,7 @@ FARM_ID = "farm"  # the 🌾 farm: fields, buildings, no-fly zones, landing pads
 GOTO_MAX_M = 40.0  # 📍 click-to-go outside an exploration world: the lidar map is built around the drone and the spot
 EXPLORE_MAP_EVERY_S = 0.5  # 🗺 the explorer's map goes to the UI twice a second (sim time)
 CAMERA_SEND_EVERY_S = 0.2  # down-camera pictures go to the UI 5 times a second (sim time)
+TERRAIN_CRASH_M_S = 2.5  # 🏔 touching the ground faster than this away from home = a crash (a landing is ~0.5)
 PRECLAND_MAX_DIST_M = 12.0  # 🎯 precision landing needs a pad within this distance
 
 
@@ -86,6 +89,8 @@ class MissionSim(RealtimeSim):
         self.explore_args: dict | None = None
         self._explore_map_sent_s = -1.0
         self._explore_events_seen = 0
+        self.terrain: Terrain | None = None  # 🏔 real/hilly ground instead of the flat plane (None = flat)
+        self._terrain_version = 0
         super().__init__(config, seed)
 
     # ---- course ----
@@ -116,6 +121,7 @@ class MissionSim(RealtimeSim):
         self._in_no_fly = None
         super().reset(config, seed)
         self.lidar_view = Perception(self.seed) if self.lidar_on else None  # Reset = an empty map
+        self.sim.physics.ground_height_fn = self.terrain.height if self.terrain else None
         self._spawn_formation()
 
     def _spawn_formation(self, keep_existing: bool = False) -> None:
@@ -169,6 +175,7 @@ class MissionSim(RealtimeSim):
         if scenario_id is not None and scenario_id not in SCENARIOS and scenario_id != FARM_ID:
             raise ValueError(f"Unknown course '{scenario_id}'. Choose one of: {', '.join([*SCENARIOS, FARM_ID])}.")
         self.course_id = scenario_id
+        self.terrain = None  # courses are built on flat ground
         self.plan = None
         self.explore_args = None
         if scenario_id == FARM_ID:
@@ -192,6 +199,7 @@ class MissionSim(RealtimeSim):
         self.agile_plan = None
         if track_id:
             self.course_id, self.mission = None, None  # a race replaces a course
+            self.terrain = None
             self.explore_args = None
         self.reset()
         if not track_id:
@@ -278,6 +286,43 @@ class MissionSim(RealtimeSim):
                 self.notices.append(msg)
                 self.pilot.message = msg
         self._race_prev_pos = pos
+
+    # ---- 🏔 terrain (sim/terrain.py) ----
+
+    def load_terrain(self, terrain_id: str | None) -> str:
+        """Fly over hills or a real downloaded place (None = back to flat ground). Replaces any course or race."""
+        new = terrain.load(terrain_id) if terrain_id else None  # raises ValueError for an unknown name
+        if self.race:
+            self.race = None
+            self.agile_plan = None
+        self.course_id, self.mission, self.plan, self.explore_args = None, None, None, None
+        self.terrain = new
+        self._terrain_version += 1
+        self.reset()
+        if not new:
+            return "Flat ground again."
+        lo, hi = float(new.heights_m.min()), float(new.heights_m.max())
+        return (f"🏔 {new.title}: the ground goes from {lo:+.0f} m to {hi:+.0f} m compared with home. Altitude is "
+                "measured from home (like a real barometer), so watch out for the hills!")
+
+    def terrain_info(self) -> dict | None:
+        return self.terrain.to_dict() if self.terrain else None
+
+    def _check_terrain_impact(self, s: State) -> bool:
+        """A hard touch-down away from home on a hill = a crash into the hillside: motors off."""
+        ph = self.sim.physics
+        speed = ph.last_impact_m_s
+        if not self.terrain or speed <= 0.0:
+            return False
+        ph.last_impact_m_s = 0.0
+        if speed > TERRAIN_CRASH_M_S and self.pilot.sp.armed:
+            ground = self.terrain.height(float(s.pos_m[0]), float(s.pos_m[1]))
+            msg = (f"💥 Hit the ground at {speed:.1f} m/s, on ground {ground:+.1f} m above home. Altitude is measured "
+                   "from home, not from the ground below: climb before flying toward a hill.")
+            self.notices.append(msg)
+            self.pilot.message = msg
+            return True
+        return False
 
     def course_info(self) -> dict | None:
         """Everything the 3D view needs to draw the course (sent once per change, not every frame)."""
@@ -721,8 +766,12 @@ class MissionSim(RealtimeSim):
             if self.follower.phase in ("landed", "crashed", "stuck"):
                 self._end_mission(s)
             return sp
+        crashed = self._check_terrain_impact(s)
         self.pilot.attitude_mode = self.failsafe_active()
         sp = self.apply_failsafe(self.pilot.update(self.sim.estimate, dt_s, s))  # estimate decides; ground contact from truth
+        if crashed:
+            sp.armed = False
+            self.pilot.mode = "idle"
         if self.mission and sp.armed and clearance_m(self.mission.obstacles, *(float(v) for v in s.pos_m)) < 0:
             sp.armed = False
             self.pilot.mode = "idle"
@@ -762,6 +811,8 @@ class MissionSim(RealtimeSim):
             return self.load_course(args.get("scenario") or None)
         if cmd == "race":
             return self.load_race(args.get("track") or None)
+        if cmd == "terrain":
+            return self.load_terrain(args.get("id") or None)
         if cmd == "formation":
             return self.set_formation(args.get("count", 0), args.get("shape", "v"), args.get("spacing_m", 1.5), args.get("avoid", True))
         if cmd == "mission":
@@ -816,6 +867,9 @@ class MissionSim(RealtimeSim):
         snap["race"] = self.race.status(self.state.time_s) if self.race else None
         snap["agile"] = self._agile_snapshot()
         snap["explore"] = self._explore_snapshot()
+        if self.terrain:
+            x, y, z = (float(v) for v in self.state.pos_m)
+            snap["terrain_agl_m"] = round(z - self.terrain.height(x, y), 2)  # height above the ground below
         f_cam = getattr(self.follower, "camera", None)
         if f_cam is not None:
             survey = {"photos_taken": len(f_cam.photos), "on_line": f_cam.line is not None}

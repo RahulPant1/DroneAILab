@@ -10,6 +10,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import CourseView, { courseBounds } from './CourseView';
+import World from './World';
 import ExploreView from './ExploreView';
 import FarmView, { siteBounds } from './FarmView';
 import Label from './Label3D';
@@ -511,22 +512,28 @@ function GroundClick({ onClick }: { onClick: (x: number, y: number) => void }) {
 }
 
 export default function Scene({ armLength, follow, chase = false, toy = false, onGroundClick }: { armLength: number; follow: boolean; chase?: boolean; toy?: boolean; onGroundClick?: (x: number, y: number) => void }) {
+  const { scenery, terrain } = useSimUi();
+  const real = scenery === 'real';
   return (
-    <Canvas frameloop="demand" dpr={[1, 1.5]} camera={{ position: [2.5, 2.2, 3.5], fov: 50, near: 0.05, far: 500 }}>
-      <color attach="background" args={['#0f1420']} />
-      <ambientLight intensity={0.7} />
-      <directionalLight position={[5, 10, 4]} intensity={1.2} />
-      <Grid
-        args={[60, 60]}
-        cellSize={0.5}
-        cellThickness={0.6}
-        cellColor="#2c3648"
-        sectionSize={5}
-        sectionThickness={1.2}
-        sectionColor="#4a5a78"
-        fadeDistance={60}
-        infiniteGrid
-      />
+    <>
+    <Canvas frameloop="demand" dpr={[1, 1.5]} shadows={real} camera={{ position: [2.5, 2.2, 3.5], fov: 50, near: 0.05, far: 2500 }}>
+      {!real && <color attach="background" args={['#0f1420']} />}
+      <ambientLight intensity={real ? 0.35 : 0.7} />
+      {!real && <directionalLight position={[5, 10, 4]} intensity={1.2} />}
+      <World />
+      {!real && !terrain && (
+        <Grid
+          args={[60, 60]}
+          cellSize={0.5}
+          cellThickness={0.6}
+          cellColor="#2c3648"
+          sectionSize={5}
+          sectionThickness={1.2}
+          sectionColor="#4a5a78"
+          fadeDistance={60}
+          infiniteGrid
+        />
+      )}
       <group rotation={ENU_TO_THREE}>
         <Axes />
         <CourseLayer />
@@ -550,5 +557,13 @@ export default function Scene({ armLength, follow, chase = false, toy = false, o
       <FrameCourse />
       <RedrawOnState />
     </Canvas>
+    <div className="scene-corner">
+      <button className="scenery-toggle" onClick={() => sim.setScenery(real ? 'simple' : 'real')}
+        title="Realistic: grass, sky, trees and the sun's shadow. Simple: the plain grid (lighter on the graphics card, easier to judge distances).">
+        {real ? '🌳 Realistic' : '▦ Simple'}
+      </button>
+      {terrain?.attribution && <span className="scene-attrib">{terrain.attribution}</span>}
+    </div>
+    </>
   );
 }

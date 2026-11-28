@@ -14,3 +14,4 @@ external/
 private/
 data/logs/
 data/twin/
+data/terrain/

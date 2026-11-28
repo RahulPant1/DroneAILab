@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import CameraView from './CameraView';
-import { useKeyboardSticks } from './Controls';
+import { useKeyboardSticks, useTerrains } from './Controls';
 import { RaceHud } from './RaceView';
 import Scene from './Scene';
 import { sim, useSimUi, useThrottledState } from './sim';
@@ -15,6 +15,7 @@ const SCENES: { id: string; icon: string; label: string; run: () => void }[] = [
   { id: 'eight', icon: '♾️', label: 'Figure eight', run: () => sim.send('race', { track: 'figure_eight' }) },
   { id: 'explore', icon: '🏠', label: 'Explore a house', run: () => sim.send('explore', { world: 'rooms', local: 'dwa', localisation: 'gps', movers: true }) },
   { id: 'forest', icon: '🌲', label: 'Explore a forest', run: () => sim.send('explore', { world: 'forest', local: 'dwa', localisation: 'gps', movers: false }) },
+  { id: 'hills', icon: '🏔', label: 'Hills', run: () => sim.send('terrain', { id: 'hills' }) },
   { id: 'friends', icon: '🦆', label: 'Bring friends', run: () => sim.send('formation', { count: 3, shape: 'v', spacing_m: 1.5, avoid: true }) },
 ];
 
@@ -32,11 +33,12 @@ function toggleFullscreen() {
 export default function Play({ armLength }: { armLength: number }) {
   useKeyboardSticks(2);
   const s = useThrottledState(5);
-  const { course, race } = useSimUi();
+  const { course, race, terrain } = useSimUi();
+  const places = useTerrains().filter((p) => p.downloaded);
   const v = useVoice();
   const [cam, setCam] = useState<'behind' | 'free'>('behind');
   const flying = !!s && (s.mode === 'takeoff' || s.mode === 'hover' || s.mode === 'mission' || s.mode === 'precland' || (!!s.explore && (s.explore.phase === 'explore' || s.explore.phase === 'takeoff')) || !!s.agile);
-  const where = race ? `🏁 ${race.title}` : course ? course.title : '🎈 Free fly';
+  const where = race ? `🏁 ${race.title}` : course ? course.title : terrain ? `🏔 ${terrain.title}` : '🎈 Free fly';
   const reply = v.busy || (v.reply ? v.reply.say : 'Press 🎙 and say “take off”!');
   // say "Arrived!" / "Can't get there" out loud
   const spoken = useRef('');
@@ -60,6 +62,12 @@ export default function Play({ armLength }: { armLength: number }) {
           <span className="play-where">{where}</span>
           <span className="play-status">
             {s ? (flying ? `✈ flying · ${s.pos_m[2].toFixed(1)} m up` : s.on_ground ? '🛬 on the ground' : '…') : 'connecting…'}
+            {s?.terrain_agl_m !== undefined && flying && Math.abs(s.pos_m[2] - s.terrain_agl_m) > 0.5 && (
+              <b style={{ color: s.terrain_agl_m < 3 ? '#ef476f' : undefined }}
+                title="Altitude is measured from home (the take-off spot). Over a hill the ground is closer than that!">
+                {' '}· {s.terrain_agl_m.toFixed(1)} m above the ground{s.terrain_agl_m < 3 ? ' ⚠ hill!' : ''}
+              </b>
+            )}
             {s?.explore && !s.explore.target && ` · mapped ${Math.round(s.explore.coverage * 100)} %`}
           </span>
           {s?.est_pos_m && (
@@ -79,7 +87,7 @@ export default function Play({ armLength }: { armLength: number }) {
         </div>
 
         <div className="play-scenes">
-          {SCENES.map((sc) => (
+          {[...SCENES, ...places.map((p) => ({ id: p.id, icon: '🗺', label: p.title.split(',')[0], run: () => sim.send('terrain', { id: p.id }) }))].map((sc) => (
             <button key={sc.id} className="play-card" disabled={v.offline} onClick={sc.run}>
               <span className="play-card-icon">{sc.icon}</span>
               {sc.label}
