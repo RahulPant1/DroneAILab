@@ -156,12 +156,17 @@ def _dir(word: str) -> str:
     return {"forwards": "forward", "ahead": "forward", "backward": "back", "backwards": "back"}.get(word, word)
 
 
+def collapse_repeats(t: str) -> str:
+    """'go left left' -> 'go left' (people repeat themselves, and Whisper sometimes hears a word twice)."""
+    return re.sub(r"\b(\w+)(?: \1\b)+", r"\1", t)
+
+
 def quick_parse(text: str) -> list[dict] | None:
     """Fixed phrases, possibly chained with 'then' / 'and'. None = not a quick command (ask the AI)."""
-    t = normalise(text)
+    t = collapse_repeats(normalise(text))
     if not t:
         return None
-    parts = [p.strip() for p in re.split(r"\b(?:and then|then|and|after that)\b|,", t) if p.strip()]
+    parts = [p.strip() for p in re.split(r"\b(?:and then|then|and|after that)\b", t) if p.strip()]
     out = []
     for p in parts:
         for rx, make in QUICK:
@@ -178,8 +183,6 @@ def quick_parse(text: str) -> list[dict] | None:
 SYSTEM_PROMPT = """You turn what a person says to a toy drone in DroneLab (a simulator) into actions. Kids use it too: be
 forgiving about wording, but only pick actions and names from the lists. Never invent a name, never write coordinates.
 
-RIGHT NOW: {now}
-
 ACTIONS (use the exact action name; only the fields each needs):
 {actions}
 
@@ -194,13 +197,17 @@ NAMES YOU MAY USE:
 - localisation (exploration): {locs}  ("without GPS"/"indoors" = slam; "no GPS and no lidar help" = dead_reckoning)
 
 RULES:
+0. "go left / right / forward / back / up / down" means MOVE that way (action move). Use turn ONLY when they say
+   turn, rotate, spin or face. If a word is repeated ("left, left"), it is said once.
 1. At most {max_actions} actions, in order. "race X with the autopilot" = race (track X) then race_autopilot.
    "fly the slalom by itself" = course (slalom) then mission. On the farm, put the whole request into one farm_plan
    action and copy the user's words into "request".
 2. If they ask for something none of the actions can do, or a name that isn't listed, put it in "not_possible" in a
    few plain words, and leave it out of the actions.
 3. "understood": one short friendly sentence, said back to the user, about what will happen.
-Reply ONLY with JSON."""
+Reply ONLY with JSON.
+
+RIGHT NOW: {now}"""  # what changes goes LAST: Ollama reuses its work on the identical start of the prompt
 
 
 def _names(d: dict) -> str:
@@ -246,6 +253,20 @@ def json_schema() -> dict:
                                              "actions": {"type": "array", "items": action, "maxItems": MAX_ACTIONS},
                                              "not_possible": {"type": "array", "items": {"type": "string"}}},
             "required": ["understood", "actions", "not_possible"]}
+
+
+IDLE_CONTEXT = {"scene": "empty playground", "course": None, "race": None, "flying": False, "autopilot": False,
+                "lidar": False, "sensors": False, "wingmen": 0}
+
+
+async def warm_up(client) -> None:
+    """Load the model AND let it read the (long, unchanging) instructions once, so the next command is quick.
+    Called only when the user presses 🎙 Talk."""
+    try:
+        await client.chat([{"role": "system", "content": system_prompt(IDLE_CONTEXT)}, {"role": "user", "content": "hover"}],
+                          json_schema=json_schema())
+    except Exception:  # noqa: BLE001  (warming up is only a nicety)
+        pass
 
 
 async def ai_parse(client, text: str, ctx: dict) -> dict:
@@ -350,7 +371,7 @@ def describe(a: dict) -> str:
     if n == "move":
         return f"go {a['direction']} {a['metres']:g} m"
     if n == "turn":
-        return f"turn {a['direction']} {a['degrees']:g}°"
+        return f"turn {a['direction']} {a['degrees']:g}° on the spot"
     if n == "takeoff":
         return f"take off to {a['height_m']:g} m"
     if n == "course":
@@ -433,6 +454,17 @@ def to_messages(a: dict, session) -> list[dict]:
     raise VoiceError(f"I can't do '{n}' yet.")
 
 
+def short_word(a: dict) -> str:
+    """A one-or-two-word spoken answer for the instant commands (a long sentence after 'left' feels slow)."""
+    n = a["action"]
+    if n == "move":
+        return {"forward": "Forward!", "back": "Back!", "left": "Left!", "right": "Right!", "up": "Up!", "down": "Down!"}[a["direction"]]
+    if n == "turn":
+        return "Turning around!" if a["degrees"] >= 170 else f"Turning {a['direction']}!"
+    return {"takeoff": "Taking off!", "land": "Landing!", "hover": "Stopping!", "go_home": "Going home!",
+            "reset": "Reset!", "lidar": "OK!", "wind": "OK!"}.get(n, "OK!")
+
+
 def join_words(parts: list[str]) -> str:
     return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
 
@@ -486,6 +518,8 @@ def apply_hints(action: dict, heard: str) -> dict:
             a["movers"] = True
         if re.search(r"\b(chase|pursuit|carrot)\b", t):
             a["local"] = "pursuit"
+    if a.get("action") == "turn" and re.search(r"\b(go|move|fly|slide|step)\b", t) and not re.search(r"\b(turn|rotate|spin|face|yaw)\b", t):
+        a = {"action": "move", "direction": a.get("direction", "left"), "metres": 2.0}  # "go left" slides, it doesn't turn
     if a.get("action") == "farm_plan":
         a["request"] = heard  # the farm planner reads the user's own words, not the model's summary
     return a
@@ -510,9 +544,10 @@ async def handle(session, text: str, run_msg, get_client, ai_busy) -> list[dict]
     Ollama client; `ai_busy()` is True while another AI request is running."""
     heard = (text or "").strip()[:300]
 
-    def reply(say: str, source: str, actions: list[dict] | None = None, pending: bool = False, extra=None) -> list[dict]:
+    def reply(say: str, source: str, actions: list[dict] | None = None, pending: bool = False, extra=None,
+              short: str | None = None) -> list[dict]:
         return [*(extra or []), {"type": "voice", "heard": heard, "say": say, "source": source, "pending": pending,
-                                 "actions": [describe(a) for a in actions or []]}]
+                                 "actions": [describe(a) for a in actions or []], "short": short}]
 
     if not heard:
         return reply("I didn't hear anything. Try again a bit closer to the microphone.", "quick")
@@ -525,7 +560,7 @@ async def handle(session, text: str, run_msg, get_client, ai_busy) -> list[dict]
         session.voice_pending = None
         out = run_msg({"cmd": "hover"}) if context(session)["flying"] else None
         return reply("Stopping. Hovering here." if out is not None or context(session)["flying"] else "Stopped.", "quick",
-                     [{"action": "hover"}], extra=[out] if out else None)
+                     [{"action": "hover"}], extra=[out] if out else None, short="Stop!")
     if CONFIRM_RE.match(t):
         if not pending:
             return reply("Nothing is waiting for a go. Tell me what to do first.", "quick")
@@ -555,6 +590,9 @@ async def handle(session, text: str, run_msg, get_client, ai_busy) -> list[dict]
             return reply(f"The AI helper had a problem: {exc}", "ai")
         source, understood, not_possible = "ai", res["understood"], res["not_possible"]
         actions = [apply_hints(a, heard) for a in res["actions"]]
+        if not re.search(r"\b(then|and|again|twice|two times|times)\b", normalise(heard)):
+            # The same action twice in a row, but they didn't ask for it twice: they just repeated themselves.
+            actions = [x for i, x in enumerate(actions) if i == 0 or x != actions[i - 1]]
         if any(h != r for h, r in zip(actions, res["actions"]) if h.get("action") != "farm_plan"):
             understood = ""  # a word rule corrected the model: say what will REALLY happen, not its sentence
     if not actions:
@@ -592,4 +630,5 @@ async def handle(session, text: str, run_msg, get_client, ai_busy) -> list[dict]
     replies, err = _run(checked, session, run_msg)
     if err:
         return reply(f"I couldn't: {err}", source, checked, extra=replies)
-    return reply(words, source, checked, extra=replies)
+    short = " ".join(short_word(a) for a in checked) if source == "quick" else None
+    return reply(words, source, checked, extra=replies, short=short)

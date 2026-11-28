@@ -517,9 +517,11 @@ export interface VoiceReply {
   source: 'quick' | 'ai' | 'error';
   pending: boolean; // waiting for "go"
   actions: string[];
+  short?: string | null; // a one-or-two-word answer to speak for instant commands ("Left!")
 }
 
 export const api = {
+  voiceWarmup: () => fetch('/api/voice/warmup', { method: 'POST' }).catch(() => undefined),
   voiceStatus: () => getJson<{ available: boolean; detail: string; loaded: boolean }>('/api/voice/status'),
   voiceTranscribe: async (audio: Blob): Promise<{ text: string; seconds: number }> => {
     const r = await fetch('/api/voice/transcribe', { method: 'POST', body: audio, headers: { 'Content-Type': audio.type || 'audio/webm' } });

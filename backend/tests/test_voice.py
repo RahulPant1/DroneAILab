@@ -53,6 +53,8 @@ def say(rt: MissionSim, text: str, client: OllamaClient | None = None, steps: in
     ("land now", [{"action": "land"}]),
     ("lidar on", [{"action": "lidar", "on": True}]),
     ("race the figure eight", None),  # not a fixed phrase: the AI's job
+    ("Go left, left.", [{"action": "move", "direction": "left", "metres": 2.0}]),  # what Whisper really heard (2026-11-28)
+    ("left", [{"action": "move", "direction": "left", "metres": 2.0}]),
 ])
 def test_quick_phrases(text, expected):
     assert V.quick_parse(text) == expected
@@ -153,3 +155,32 @@ def test_transcribe_endpoint_rejects_empty_audio():
     assert r.status_code in (400, 503)  # no audio (or voice not installed): a clear error, never a crash
     s = TestClient(api.app).get("/api/voice/status").json()
     assert set(s) == {"available", "detail", "loaded"}
+
+
+def test_go_left_is_a_move_even_if_the_model_says_turn_and_repeats_are_one_action():
+    """The real bug: Whisper heard 'Go left, left.' and the model answered 'turn left' twice (a 180° spin on the spot)."""
+    rt = MissionSim(get_preset("basic"))
+    say(rt, "take off", steps=80)
+    model = fake_client({"understood": "I will turn the drone left twice.",
+                         "actions": [{"action": "turn", "direction": "left", "degrees": 90},
+                                     {"action": "turn", "direction": "left", "degrees": 90}], "not_possible": []})
+    y0 = float(rt.state.pos_m[1])
+    out = say(rt, "please go to the left, to the left", model, steps=120)  # not a fixed phrase: the AI path
+    assert out["actions"] == ["go left 2 m"] and "turn" not in out["say"]
+    assert rt.state.pos_m[1] - y0 == pytest.approx(2.0, abs=0.4)  # slid left (north, nose east)
+    assert V.apply_hints({"action": "turn", "direction": "left"}, "turn left") == {"action": "turn", "direction": "left"}
+
+
+def test_warmup_endpoint_reads_the_instructions_once(monkeypatch):
+    seen: list = []
+    monkeypatch.setattr(api, "get_ai_client", lambda: fake_client({"understood": "", "actions": [], "not_possible": []}, seen))
+    monkeypatch.setattr(api, "_warm_stt", lambda: None)
+    with TestClient(api.app) as client:
+        assert client.post("/api/voice/warmup").status_code == 200
+        for _ in range(50):
+            if seen:
+                break
+            import time
+
+            time.sleep(0.02)
+    assert seen and seen[0]["messages"][0]["content"].rstrip().endswith("wingmen")  # what changes is LAST in the prompt

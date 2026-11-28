@@ -82,7 +82,8 @@ def transcribe(audio: bytes, extra_words: str = "") -> dict:
     start = time.monotonic()
     with _lock:
         model = _load()
-        segments, info = model.transcribe(io.BytesIO(audio), language="en", vad_filter=True, beam_size=5,
+        segments, info = model.transcribe(io.BytesIO(audio), language="en", vad_filter=True, beam_size=1,  # greedy: fastest; commands are short and the word list helps
+                                         
                                           initial_prompt=f"{VOCABULARY} {extra_words}".strip(),
                                           condition_on_previous_text=False)
         text = " ".join(s.text.strip() for s in segments if s.no_speech_prob < NO_SPEECH_MAX).strip()
@@ -92,6 +93,14 @@ def transcribe(audio: bytes, extra_words: str = "") -> dict:
             _timer.daemon = True
             _timer.start()
     return {"text": text, "seconds": round(time.monotonic() - start, 2), "audio_s": round(float(info.duration), 2)}
+
+
+def warm() -> None:
+    """Load the model now (in a thread, while the user is still speaking), so the first command isn't slow."""
+    global _last_used
+    with _lock:
+        _load()
+        _last_used = time.monotonic()
 
 
 def loaded() -> bool:

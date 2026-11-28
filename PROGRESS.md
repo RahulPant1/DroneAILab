@@ -616,3 +616,15 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   word rules; farm request lost the user's words; model sentence kept after a correction; .capitalize() lowercased GPS.
 - NOT tested with a real voice / microphone (no audio on this machine); webm/opus decoding tested with a generated
   file. UI not checked in a browser (build passes).
+
+## 🎙 Voice fixes + 🎮 Play mode (2026-11-28, from the user's first real test)
+- User said "go left" after take-off: Whisper heard "Go left, left." -> the quick parser missed it (repeated word) -> AI
+  (30 s: Gemma cold load) -> "turn left twice" = a 180° spin that looked like nothing. Fixes: repeated words collapsed,
+  go/move/fly + direction = move (prompt rule 0 + code hint), duplicate actions dropped, turns say "on the spot",
+  warm-up on 🎙 press. Measured: cold warm-up 11 s (prompt prefix cached), then 0.9-1.1 s per AI command.
+- User: too many options, small 3D view. New default 🎮 Play mode (full-window 3D, 6 scene cards, big buttons, the
+  reply in big text, full-screen button); 🔧 Engineer = the old dashboard. NOT checked in a browser (build passes).
+- Second round of feedback: talk -> press -> long spoken reply felt slow; left/right unclear on the drone. Now: the
+  browser detects the end of speech (no second press), hands-free option, greedy Whisper, one-word replies for
+  instant commands; Play shows a toy drone (eyes, red-left/green-right lights) with a camera behind it. Not checked
+  in a browser; latency not measured with a real voice.

@@ -10,6 +10,7 @@ import Logs from './Logs';
 import History from './History';
 import Lab from './Lab';
 import Learn from './Learn';
+import Play from './Play';
 import Scene from './Scene';
 import { api, useSimUi, useThrottledState, type Health } from './sim';
 import Studio from './Studio';
@@ -61,6 +62,15 @@ export default function App() {
   const [learnSlug, setLearnSlug] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
   const { open: assistantOpen } = useAssistant();
+  const [mode, setModeState] = useState<'play' | 'engineer'>(() => {
+    try { return localStorage.getItem('dronelab.mode') === 'engineer' ? 'engineer' : 'play'; } catch { return 'play'; }
+  });
+  const setMode = (m: 'play' | 'engineer') => {
+    setModeState(m);
+    try { localStorage.setItem('dronelab.mode', m); } catch { /* storage unavailable */ }
+    if (m === 'play') setTab('fly');
+  };
+  const play = mode === 'play'; // Play always shows the 3D world (the tabs are hidden)
 
   const setTab = (t: TabId) => {
     setTabState(t);
@@ -75,17 +85,21 @@ export default function App() {
     <div className="app">
       <header>
         <h1>🚁 DroneLab</h1>
-        <nav>
+        <div className="mode-switch" title="Play = big 3D view and a few big buttons. Engineer = every panel, slider and number.">
+          <button className={mode === 'play' ? 'active' : ''} onClick={() => setMode('play')}>🎮 Play</button>
+          <button className={mode === 'engineer' ? 'active' : ''} onClick={() => setMode('engineer')}>🔧 Engineer</button>
+        </div>
+        {mode === 'engineer' && <nav>
           {TABS.map((t) => (
             <button key={t.id} className={`tab ${t.id === tab ? 'active' : ''}`} disabled={!t.ready}
               title={t.note ? `Coming in ${t.note}` : ''} onClick={() => setTab(t.id)}>
               {t.label}{t.note && <span className="soon"> · {t.note}</span>}
             </button>
           ))}
-        </nav>
-        <button className={`assistant-toggle ${assistantOpen ? 'active' : ''}`} onClick={() => assistantStore.setOpen(!assistantOpen)}>
+        </nav>}
+        {mode === 'engineer' && <button className={`assistant-toggle ${assistantOpen ? 'active' : ''}`} onClick={() => assistantStore.setOpen(!assistantOpen)}>
           💬 Assistant
-        </button>
+        </button>}
         <div className="status">
           <span className={`pill ${status === 'open' ? 'ok' : 'bad'}`} title="Live connection to the simulator">Sim {status === 'open' ? 'live' : status}</span>
           <span className={`pill ${health?.llm === 'ok' ? 'ok' : 'off'}`} title={health?.model ?? ''}>
@@ -94,7 +108,8 @@ export default function App() {
         </div>
       </header>
 
-      {tab === 'fly' && (
+      {play && <Play armLength={config?.arm_length_m ?? 0.225} />}
+      {tab === 'fly' && !play && (
         <main className="fly">
           <Studio onLearn={setLearnSlug} />
           <section className="viewport">
@@ -109,9 +124,9 @@ export default function App() {
           <Telemetry onLearn={setLearnSlug} />
         </main>
       )}
-      {tab === 'lab' && <main className="scroll"><Lab onLearn={setLearnSlug} /></main>}
-      {tab === 'history' && <main className="scroll"><History /></main>}
-      {tab === 'logs' && <main className="scroll"><Logs initialId={openLogId} /></main>}
+      {!play && tab === 'lab' && <main className="scroll"><Lab onLearn={setLearnSlug} /></main>}
+      {!play && tab === 'history' && <main className="scroll"><History /></main>}
+      {!play && tab === 'logs' && <main className="scroll"><Logs initialId={openLogId} /></main>}
 
       {assistantOpen && <Assistant health={health} onApplied={() => setTab('lab')} />}
       {learnSlug && <Learn slug={learnSlug} onClose={() => setLearnSlug(null)} />}

@@ -58,6 +58,18 @@ class OllamaClient:
             body["format"] = json_schema
         return body
 
+    async def preload(self) -> None:
+        """Ask Ollama to load the model into memory now (an empty generate request), with the usual keep_alive.
+        Only ever called because the user just did something that will need it (e.g. pressed 🎙 Talk)."""
+        if not self.model:
+            return
+        timeout = httpx.Timeout(RESPONSE_TIMEOUT_S, connect=CONNECT_TIMEOUT_S)
+        try:
+            async with httpx.AsyncClient(timeout=timeout, transport=self.transport) as client:
+                await client.post(f"{self.url}/api/generate", json={"model": self.model, "keep_alive": self.keep_alive})
+        except httpx.HTTPError:
+            pass  # warming up is only a nicety
+
     async def chat(self, messages: list[dict], json_schema: dict | None = None) -> str:
         """Send a chat and return the reply text."""
         if not self.model:

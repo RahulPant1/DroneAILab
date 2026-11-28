@@ -36,6 +36,7 @@
                                WS {"cmd": "precland", "mode": "vision"|"gps"}, {"cmd": "camera", "enabled"}, {"cmd": "speed", "factor"}
 
   GET  /api/voice/status       -> 🎙 {available, detail, loaded}
+  POST /api/voice/warmup       -> 🎙 Talk pressed: start loading Whisper + the LLM in the background
   POST /api/voice/transcribe   -> raw audio body (webm/ogg/wav) -> {text, seconds} (offline Whisper, CPU)
                                WS {"cmd": "voice", "text": "..."} runs it (quick phrases at once; else the local LLM picks
                                actions; anything that flies a route waits for "go"; "stop" always wins)
@@ -463,6 +464,29 @@ async def voice_transcribe(request: Request) -> dict:
         raise HTTPException(503, str(exc)) from None
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
+
+
+@app.post("/api/voice/warmup")
+async def voice_warmup() -> dict:
+    """🎙 Talk was pressed: load Whisper and the local LLM while the user speaks (never at server start)."""
+    ok, detail = stt.available()
+    if ok:
+        asyncio.get_running_loop().run_in_executor(None, _warm_stt)
+    if not _ai_lock.locked():
+        asyncio.create_task(_warm_ai())
+    return {"ok": ok, "detail": detail}
+
+
+async def _warm_ai() -> None:
+    async with _ai_lock:  # a real command arriving meanwhile waits for it instead of loading the model twice
+        await voice.warm_up(get_ai_client())
+
+
+def _warm_stt() -> None:
+    try:
+        stt.warm()
+    except stt.VoiceUnavailable:
+        pass
 
 
 async def voice_command(session: MissionSim, text: str, outbox: list[dict]) -> None:

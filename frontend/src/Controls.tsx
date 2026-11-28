@@ -51,7 +51,7 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 /** Hold the move keys to move the target. Sends only when the set of held keys changes. */
-function useKeyboardSticks(takeoffAltM: number): void {
+export function useKeyboardSticks(takeoffAltM: number): void {
   const altRef = useRef(takeoffAltM);
   altRef.current = takeoffAltM;
   useEffect(() => {

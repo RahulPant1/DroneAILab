@@ -49,7 +49,7 @@ const WINGMAN_COLORS = ['#ffd166', '#06d6a0', '#c77dff', '#f4a261'];
 
 /** One quadcopter. `pick` says where it is right now (null = don't draw it). Your drone is light grey;
  *  wingmen get their own body colour and a number above them. */
-function Drone({ armLength, pick, body = '#d8dee9', label }: { armLength: number; pick: () => Pose | null | undefined; body?: string; label?: string }) {
+function Drone({ armLength, pick, body = '#d8dee9', label, toy = false }: { armLength: number; pick: () => Pose | null | undefined; body?: string; label?: string; toy?: boolean }) {
   const outer = useRef<THREE.Group>(null!); // follows the position only (so the label stays upright)
   const group = useRef<THREE.Group>(null!); // also turns with the drone
   const bodyMat = useRef<THREE.MeshStandardMaterial>(null!);
@@ -74,7 +74,8 @@ function Drone({ armLength, pick, body = '#d8dee9', label }: { armLength: number
   return (
     <group ref={outer}>
     {label && <Label text={label} color={body} position={[0, 0, 0.35]} size={1.2} />}
-    <group ref={group}>
+    <group ref={group} scale={toy ? TOY_SCALE : 1}>
+      {toy && <ToyFace armLength={armLength} />}
       <mesh>
         <boxGeometry args={[0.6 * armLength, 0.45 * armLength, 0.2 * armLength]} />
         <meshStandardMaterial ref={bodyMat} color={body} />
@@ -96,8 +97,8 @@ function Drone({ armLength, pick, body = '#d8dee9', label }: { armLength: number
               ref={(el) => {
                 rotorMats.current[i] = el;
               }}
-              color="#90e0ef"
-              emissive="#4cc9f0"
+              color={toy ? (m.y > 0 ? '#ff6b81' : '#7bed9f') : '#90e0ef'}
+              emissive={toy ? (m.y > 0 ? '#ef476f' : '#06d6a0') : '#4cc9f0'}
               transparent
               opacity={0.55}
             />
@@ -107,6 +108,79 @@ function Drone({ armLength, pick, body = '#d8dee9', label }: { armLength: number
     </group>
     </group>
   );
+}
+
+// 🎮 Play mode's drone: drawn bigger (looks only: the physics is unchanged), with a face looking forward and
+// aircraft navigation lights: RED on its left side, GREEN on its right (the rule real pilots use).
+const TOY_SCALE = 2.2;
+
+function ToyFace({ armLength: L }: { armLength: number }) {
+  const eye = 0.09 * L;
+  return (
+    <group>
+      {[1, -1].map((side) => (
+        <group key={side} position={[0.31 * L, side * 0.1 * L, 0.06 * L]}>
+          <mesh>
+            <sphereGeometry args={[eye, 16, 12]} />
+            <meshStandardMaterial color="#ffffff" />
+          </mesh>
+          <mesh position={[0.6 * eye, 0, 0.1 * eye]}>
+            <sphereGeometry args={[0.5 * eye, 12, 10]} />
+            <meshStandardMaterial color="#111" />
+          </mesh>
+        </group>
+      ))}
+      {/* a yellow arrow on top, pointing forward */}
+      <mesh position={[0.05 * L, 0, 0.13 * L]} rotation={[0, 0, -Math.PI / 2]}>
+        <coneGeometry args={[0.12 * L, 0.3 * L, 3]} />
+        <meshStandardMaterial color="#ffd166" emissive="#ffd166" emissiveIntensity={0.4} />
+      </mesh>
+      {/* nav lights at the arm tips: left red, right green */}
+      {[[0.5, 0.5], [-0.5, 0.5], [0.5, -0.5], [-0.5, -0.5]].map(([x, y], k) => (
+        <mesh key={k} position={[x * L * 1.25, y * L * 1.25, 0.02]}>
+          <sphereGeometry args={[0.05 * L, 10, 8]} />
+          <meshStandardMaterial color={y > 0 ? '#ef476f' : '#06d6a0'} emissive={y > 0 ? '#ef476f' : '#06d6a0'} emissiveIntensity={1.2} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/** 🎮 Camera that stays with the drone and TURNS with it, keeping whatever angle you dragged it to. It starts behind
+ *  the drone (its left = the screen's left, like a racing game). The mouse still works: drag to look round, scroll to
+ *  zoom; when the drone turns, your view turns with it. */
+function ChaseCamera({ enabled }: { enabled: boolean }) {
+  const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void } | null;
+  const camera = useThree((s) => s.camera);
+  const state = useRef<{ yaw: number | null; placed: boolean }>({ yaw: null, placed: false });
+  const pos = useMemo(() => new THREE.Vector3(), []);
+  const offset = useMemo(() => new THREE.Vector3(), []);
+  const up = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  useFrame(() => {
+    const s = sim.latest;
+    if (!enabled) {
+      state.current = { yaw: null, placed: false };
+      return;
+    }
+    if (!s || !controls) return;
+    const yaw = s.euler_rad[2];
+    enuToThree(s.pos_m, pos);
+    if (!state.current.placed) {
+      // first frame: put the camera 4 m behind and 2 m above the drone
+      const c = Math.cos(yaw), sn = Math.sin(yaw);
+      enuToThree([s.pos_m[0] - 4.0 * c, s.pos_m[1] - 4.0 * sn, s.pos_m[2] + 2.0], camera.position);
+      controls.target.copy(pos);
+      state.current = { yaw, placed: true };
+    }
+    offset.copy(camera.position).sub(controls.target);
+    const dyaw = Math.atan2(Math.sin(yaw - (state.current.yaw ?? yaw)), Math.cos(yaw - (state.current.yaw ?? yaw)));
+    offset.applyAxisAngle(up, dyaw); // the drone turned: turn the view by the same angle
+    state.current.yaw = yaw;
+    controls.target.copy(pos);
+    camera.position.copy(pos).add(offset);
+    controls.update();
+  });
+  return null;
 }
 
 /** Wingmen (multi-drone formation): up to 4 extra drones, drawn from the formation part of each state. */
@@ -415,7 +489,7 @@ function FrameCourse() {
   return null;
 }
 
-export default function Scene({ armLength, follow }: { armLength: number; follow: boolean }) {
+export default function Scene({ armLength, follow, chase = false, toy = false }: { armLength: number; follow: boolean; chase?: boolean; toy?: boolean }) {
   return (
     <Canvas frameloop="demand" dpr={[1, 1.5]} camera={{ position: [2.5, 2.2, 3.5], fov: 50, near: 0.05, far: 500 }}>
       <color attach="background" args={['#0f1420']} />
@@ -439,7 +513,7 @@ export default function Scene({ armLength, follow }: { armLength: number; follow
         <GhostDrone armLength={armLength} />
         <Trail />
         <Markers armLength={armLength} />
-        <Drone armLength={armLength} pick={() => sim.latest} />
+        <Drone armLength={armLength} pick={() => sim.latest} toy={toy} />
         <Wingmen armLength={armLength} />
         <ArduPilotPad />
         <Trail pick={pickArduPilotTrail} color={ARDUPILOT_COLOR} />
@@ -449,7 +523,8 @@ export default function Scene({ armLength, follow }: { armLength: number; follow
         <ExploreView />
       </group>
       <OrbitControls makeDefault target={[0, 0.5, 0]} maxPolarAngle={Math.PI / 2 - 0.02} />
-      <FollowCamera enabled={follow} />
+      <FollowCamera enabled={follow && !chase} />
+      <ChaseCamera enabled={chase} />
       <FrameCourse />
       <RedrawOnState />
     </Canvas>

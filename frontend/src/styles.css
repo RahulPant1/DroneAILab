@@ -408,3 +408,48 @@ ul.timeline li.mode { color: #4cc9f0; }
 .voice-type input { flex: 1; }
 .voice-reply { margin: 4px 0 0; }
 button.danger { border-color: var(--bad); color: var(--bad); }
+
+/* ---- 🎮 Play mode: the 3D view fills the window, big buttons on top ---- */
+.mode-switch { display: inline-flex; border: 1px solid #2c3648; border-radius: 8px; overflow: hidden; }
+.mode-switch button { border: none; border-radius: 0; padding: 4px 12px; background: transparent; }
+.mode-switch button.active { background: #2a5fa8; color: #fff; }
+main.play { flex: 1; min-height: 0; display: flex; }
+.play-canvas { flex: 1; min-height: 0; }
+.play-top { position: absolute; top: 10px; left: 12px; right: 12px; display: flex; align-items: center; gap: 12px; pointer-events: none; }
+.play-top > * { pointer-events: auto; }
+.play-where { font-size: 20px; font-weight: 700; background: #0f1420cc; padding: 6px 14px; border-radius: 10px; }
+.play-status { font-size: 16px; background: #0f1420cc; padding: 6px 12px; border-radius: 10px; }
+.play-small { font-size: 13px; background: #0f1420cc; padding: 6px 10px; border-radius: 8px; }
+.play-scenes { position: absolute; top: 64px; right: 12px; display: flex; flex-direction: column; gap: 8px; }
+.play-card { display: flex; align-items: center; gap: 10px; font-size: 17px; padding: 10px 16px; min-width: 190px;
+  background: #1b2333e6; border: 1px solid #3a4a66; border-radius: 12px; }
+.play-card:hover:not(:disabled) { background: #2a5fa8; }
+.play-card-icon { font-size: 26px; }
+.play-bottom { position: absolute; left: 0; right: 0; bottom: 14px; display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; }
+.play-bottom > * { pointer-events: auto; }
+.play-reply { max-width: min(900px, 92vw); font-size: 20px; text-align: center; background: #0f1420dd; padding: 10px 18px; border-radius: 14px; }
+.play-reply.pending { border: 2px solid #ffd166; }
+.play-heard { display: block; font-size: 14px; color: #9aa5b8; margin-bottom: 2px; }
+.play-buttons { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.play-btn { font-size: 22px; padding: 14px 24px; border-radius: 16px; background: #1b2333ee; border: 2px solid #3a4a66; min-width: 130px; }
+.play-btn:hover:not(:disabled) { border-color: #4cc9f0; }
+.play-btn.talk { background: #2a5fa8; border-color: #4cc9f0; font-size: 26px; min-width: 180px; }
+.play-btn.talk.recording { background: var(--bad); animation: voice-pulse 1s infinite; }
+.play-btn.go { background: #06d6a0; color: #0f1420; border-color: #06d6a0; font-weight: 700; }
+.play-btn.stop { border-color: var(--bad); color: #fff; background: #ef476f55; }
+.play-btn.small { min-width: 0; padding: 14px 16px; }
+.play-keys { font-size: 12px; color: #9aa5b8; background: #0f1420aa; padding: 3px 10px; border-radius: 8px; }
+@media (max-width: 900px) {
+  .play-scenes { top: auto; bottom: 190px; right: 8px; }
+  .play-card { min-width: 0; font-size: 14px; padding: 8px 10px; }
+  .play-btn { font-size: 17px; padding: 10px 14px; min-width: 0; }
+}
+.play-btn.talk.recording { animation: none; background: #2a5fa8; }
+.play-btn.talk.hearing { background: var(--bad); animation: voice-pulse 0.8s infinite; }
+.play-btn.small.on { background: #06d6a0; color: #0f1420; border-color: #06d6a0; }
+.play-lights b { font-weight: 700; }
+.play-cheats { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 12px; max-width: min(1000px, 94vw);
+  font-size: 13px; background: #0f1420cc; padding: 5px 12px; border-radius: 10px; }
+.play-cheat kbd { display: inline-block; min-width: 18px; text-align: center; font-size: 11px; padding: 1px 4px; margin-right: 3px;
+  border: 1px solid #4a5a78; border-radius: 4px; background: #1b2333; }
+.play-cheat kbd:empty { display: none; }
