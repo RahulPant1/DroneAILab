@@ -281,7 +281,7 @@ export interface ExploreStatus {
   local: string;
   localisation: string;
   movers: boolean;
-  phase: 'takeoff' | 'explore' | 'done' | 'crashed' | 'stopped';
+  phase: 'takeoff' | 'explore' | 'done' | 'crashed' | 'stopped' | 'arrived' | 'unreachable';
   coverage: number; // 0..1 of the real floor
   est_err_m: number; // estimate vs truth (only the simulator knows)
   scan_matches: number;
@@ -289,6 +289,7 @@ export interface ExploreStatus {
   goals: number;
   path: [number, number][];
   goal: [number, number] | null;
+  target: [number, number] | null; // 📍 a clicked spot it is flying to
   people: [number, number, number][]; // where people really are: x, y, size
   tracked: [number, number, number, number][]; // what the drone thinks is moving: x, y, vx, vy
   map?: ExploreMap; // only every 0.5 s
@@ -384,6 +385,7 @@ class SimConnection {
   cropmaps: CropMap[] = []; // 🌱 from the last survey flown live
   voice: VoiceReply | null = null; // 🎙 the last voice / typed command's answer (seq goes up with each)
   voiceSeq = 0;
+  clickToGo = false; // 🔧 Engineer: clicking the ground sends the drone there (always on in 🎮 Play)
   status: Status = 'connecting';
   log: LogEntry[] = [];
   version = 0; // bumps on config / status / log changes (not on every state frame)

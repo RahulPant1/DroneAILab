@@ -60,6 +60,7 @@ SWITCH_MARGIN_M = 1.5  # keep the current goal unless another frontier is this m
 GOAL_REACHED_M = 0.6
 LOOKAHEAD_M = 1.5
 DONE_HOLD_S = 3.0  # no frontier left for this long = finished
+TARGET_REACHED_M = 0.4  # 📍 click-to-go: this close to the clicked spot = arrived
 
 # ---- local planners ------------------------------------------------------------------------------------------------
 ACCEL_M_S2 = 2.0
@@ -138,7 +139,9 @@ def _rooms() -> World:
     w = 0.2
     walls = _fence(0, 16, 0, 12) + [
         Box(6, 6 + w, 0, 2), Box(6, 6 + w, 3.8, 8), Box(6, 6 + w, 9.8, 12),  # left rooms | hall: two 1.8 m doors
-        Box(11, 11 + w, 0, 5), Box(11, 11 + w, 6.8, 12),  # hall | right rooms, one door
+        # hall | right rooms: a 1.8 m door into each right room. (The first version had ONE door at y 5-6.8, right where
+        # the wall between the right rooms starts: it was split into a 1.0 m and a 0.6 m gap, too narrow to fly.)
+        Box(11, 11 + w, 0, 3), Box(11, 11 + w, 4.8, 8), Box(11, 11 + w, 9.8, 12),
         Box(0, 2, 6, 6 + w), Box(3.8, 6, 6, 6 + w),  # between the two left rooms
         Box(11, 13, 6, 6 + w), Box(14.8, 16, 6, 6 + w),  # between the two right rooms
         Box(8, 9, 7.5, 8.5),  # a cupboard in the hall
@@ -263,8 +266,27 @@ class Grid:
 _MOVES = [(1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0)] + [(dx, dy, math.sqrt(2)) for dx in (1, -1) for dy in (1, -1)]
 
 
-def dijkstra(passable: np.ndarray, start: tuple[int, int]) -> tuple[np.ndarray, dict]:
-    """Distance (cells) from start to every passable cell, 8-connected without cutting corners, and the parents."""
+def dilate(mask: np.ndarray, r: int) -> np.ndarray:
+    """Grow a mask by r cells (square)."""
+    out = mask.copy()
+    nx, ny = mask.shape
+    for dx in range(-r, r + 1):
+        for dy in range(-r, r + 1):
+            out[max(0, dx):nx - max(0, -dx), max(0, dy):ny - max(0, -dy)] |= mask[max(0, -dx):nx - max(0, dx), max(0, -dy):ny - max(0, dy)]
+    return out
+
+
+def clearance_cost(blocked: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """A costmap (like Nav2's): cells just outside the keep-out zone cost more, so paths run through the MIDDLE of
+    doors and corridors instead of grazing their edges. Returns (cost per cell, 'right next to the margin' mask)."""
+    near1 = dilate(blocked, 1) & ~blocked
+    near2 = dilate(blocked, 2) & ~blocked
+    return 1.0 + 4.0 * near1 + 2.0 * near2, near1
+
+
+def dijkstra(passable: np.ndarray, start: tuple[int, int], cost: np.ndarray | None = None) -> tuple[np.ndarray, dict]:
+    """Distance (cells, times each cell's cost) from start to every passable cell, 8-connected without cutting
+    corners, and the parents."""
     nx, ny = passable.shape
     dist = np.full((nx, ny), np.inf)
     parent: dict = {}
@@ -280,7 +302,7 @@ def dijkstra(passable: np.ndarray, start: tuple[int, int]) -> tuple[np.ndarray, 
                 continue
             if dx and dy and not (passable[i + dx, j] and passable[i, j + dy]):
                 continue
-            nd = d + step
+            nd = d + step * (cost[a, b] if cost is not None else 1.0)
             if nd < dist[a, b]:
                 dist[a, b] = nd
                 parent[(a, b)] = (i, j)
@@ -313,6 +335,22 @@ def frontier_clusters(free: np.ndarray, unknown: np.ndarray, passable: np.ndarra
     return clusters
 
 
+def straighten(cells: list[tuple[int, int]], ok: np.ndarray) -> list[tuple[int, int]]:
+    """Jump to the farthest cell in line of sight, through cells that are `ok` (passable and not hugging a margin:
+    shortcuts may not pull the path back onto the edge of a door). Cells the path itself uses are always ok."""
+    ok = ok.copy()
+    for c in cells:
+        ok[c] = True
+    keep, i = [cells[0]], 0
+    while i < len(cells) - 1:
+        j = len(cells) - 1
+        while j > i + 1 and not line_free(ok, cells[i], cells[j]):
+            j -= 1
+        keep.append(cells[j])
+        i = j
+    return keep
+
+
 def line_free(passable: np.ndarray, a: tuple[int, int], b: tuple[int, int]) -> bool:
     n = max(abs(b[0] - a[0]), abs(b[1] - a[1])) * 2 + 1
     ii = np.round(np.linspace(a[0], b[0], n)).astype(int)
@@ -340,7 +378,8 @@ class Explorer:
         self.goals: list[tuple[float, float]] = []
         self.v_cmd = np.zeros(2)
         self._next_local = 0.0
-        self.phase = "explore"  # explore | done | crashed
+        self.phase = "explore"  # explore | done | crashed | arrived | unreachable
+        self.target: tuple[float, float] | None = None  # 📍 a clicked spot to reach (instead of exploring)
         self.done = False
         self._no_frontier_since: float | None = None
         self.events: list[dict] = []
@@ -400,7 +439,7 @@ class Explorer:
         ranges = np.where(hit, np.clip(ranges + self.rng.normal(0, LIDAR_NOISE_M, BEAMS), 0.0, RANGE_M), ranges)
         self.last_scan = ((tx, ty, float(truth.pos_m[2])), ranges, yaw_true)  # for drawing the beams
         est = sim.estimate
-        if self.loc == "slam" and sim.estimator is not None:
+        if self.loc == "slam" and getattr(sim.estimator, "kind", None) == "ekf":  # scan fixes need the EKF
             self._scan_match(sim.estimator, ranges)
             est = sim.estimate
         ex, ey = float(est.pos_m[0]), float(est.pos_m[1])
@@ -501,7 +540,54 @@ class Explorer:
         self.matches += 1
 
     # ---- global: choose a frontier, plan a path ----
+    def set_target(self, x: float, y: float) -> None:
+        """📍 Fly to (x, y) instead of exploring: plan through what's known to be free AND what hasn't been seen yet
+        (optimistic: unseen space might be open), and replan as the lidar finds walls on the way."""
+        self.target = (float(x), float(y))
+        self.phase, self.done = "explore", False
+        self.path, self.goal = [], None
+        self._next_plan = 0.0
+
+    def _plan_to_target(self, x: float, y: float, t: float) -> None:
+        g = self.grid
+        ti, tj = (int(v) for v in g.index(*self.target))
+        if not (0 <= ti < g.nx and 0 <= tj < g.ny):
+            self._unreachable(t, "that spot is outside the map")
+            return
+        blocked = g.blocked()
+        passable = ~blocked
+        si, sj = (int(v) for v in g.index(x, y))
+        si, sj = min(max(si, 0), g.nx - 1), min(max(sj, 0), g.ny - 1)
+        for dx in (-1, 0, 1):  # it may stand inside a margin: let it leave
+            for dy in (-1, 0, 1):
+                if 0 <= si + dx < g.nx and 0 <= sj + dy < g.ny and not g.occupied()[si + dx, sj + dy]:
+                    passable[si + dx, sj + dy] = True
+        if blocked[ti, tj]:
+            self._unreachable(t, "that spot is on (or right next to) an obstacle it has seen")
+            return
+        cost, near = clearance_cost(blocked)
+        dist, parent = dijkstra(passable, (si, sj), cost)
+        if not np.isfinite(dist[ti, tj]):
+            self._unreachable(t, "every way there is blocked by what it has seen")
+            return
+        cells = [(ti, tj)]
+        while cells[-1] != (si, sj):
+            cells.append(parent[cells[-1]])
+        cells.reverse()
+        keep = straighten(cells, passable & ~near)
+        self.goal = (ti, tj)
+        self.path = [(x, y)] + [g.center(*c) for c in keep[1:-1]] + [self.target]
+
+    def _unreachable(self, t: float, why: str) -> None:
+        self.path, self.goal = [], None
+        if self.phase != "unreachable":
+            self.phase, self.done = "unreachable", True
+            self._event(t, "unreachable", f"📍 Can't get there: {why}.")
+
     def _plan(self, x: float, y: float, t: float) -> None:
+        if self.target is not None:
+            self._plan_to_target(x, y, t)
+            return
         g = self.grid
         free, occ = g.free(), g.occupied()
         unknown = ~free & ~occ
@@ -513,7 +599,8 @@ class Explorer:
                 if 0 <= si + dx < g.nx and 0 <= sj + dy < g.ny and free[si + dx, sj + dy]:
                     passable[si + dx, sj + dy] = True
         passable[si, sj] = True
-        dist, parent = dijkstra(passable, (si, sj))
+        cost, near = clearance_cost(~passable & ~free | g.blocked())
+        dist, parent = dijkstra(passable, (si, sj), cost)
         best, best_cost = None, math.inf
         for cl in frontier_clusters(free, unknown, passable):
             if len(cl) < MIN_FRONTIER_CELLS:
@@ -547,13 +634,7 @@ class Explorer:
         while cells[-1] != (si, sj):
             cells.append(parent[cells[-1]])
         cells.reverse()
-        keep, i = [cells[0]], 0
-        while i < len(cells) - 1:  # straighten: jump to the farthest cell in line of sight
-            j = len(cells) - 1
-            while j > i + 1 and not line_free(passable, cells[i], cells[j]):
-                j -= 1
-            keep.append(cells[j])
-            i = j
+        keep = straighten(cells, passable & ~near)
         self.path = [(x, y)] + [g.center(*c) for c in keep[1:]]
 
     def _carrot(self, x: float, y: float) -> tuple[float, float]:
@@ -632,7 +713,11 @@ class Explorer:
             return Setpoint(armed=True, alt_m=FLY_ALT_M, position_control=True, x_m=x, y_m=y)
         if self.phase == "done":
             self.path = []
-        at_goal = self.goal is not None and math.dist(pos, self.grid.center(*self.goal)) < GOAL_REACHED_M
+        if self.target is not None and self.phase == "explore" and math.dist(pos, self.target) < TARGET_REACHED_M:
+            self.phase, self.done = "arrived", True
+            self._event(t, "arrived", "📍 Arrived!")
+            self.path = []
+        at_goal = self.target is None and self.goal is not None and math.dist(pos, self.grid.center(*self.goal)) < GOAL_REACHED_M
         if self.phase == "explore" and (t >= self._next_plan or not self.path or at_goal):
             self._next_plan = t + REPLAN_S
             self._plan(x, y, t)

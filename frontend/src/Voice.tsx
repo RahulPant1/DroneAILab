@@ -8,7 +8,7 @@ import { api, sim, useSimUi } from './sim';
 const EXAMPLES = ['take off', 'go left 3 metres', 'turn right', 'come home', 'race the figure eight with the autopilot',
   'bring two wingmen in a V', 'explore the building without GPS', 'stop', 'land'];
 
-function speak(text: string) {
+export function speak(text: string) {
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text.replace(/[“”]/g, ''));

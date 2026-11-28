@@ -35,7 +35,7 @@ from .site import FARM
 from .survey import CAMERA
 from .explore import FLY_ALT_M as EXPLORE_ALT_M
 from .explore import LOCAL_PLANNERS, LOCALISATION, WORLDS as EXPLORE_WORLDS
-from .explore import Explorer
+from .explore import Explorer, World
 from .formation import SHAPE_NAMES, Formation, LeaderInfo
 from .mission import PLANNERS, SCENARIOS, MissionError, scenario_mission
 from .planner import PlanningError, plan_route
@@ -43,6 +43,7 @@ from .world import DRONE_RADIUS_M, SAFETY_MARGIN_M, clearance_m
 
 MIN_SPEED_M_S, MAX_SPEED_M_S = 0.3, 3.0
 FARM_ID = "farm"  # the 🌾 farm: fields, buildings, no-fly zones, landing pads (site.py)
+GOTO_MAX_M = 40.0  # 📍 click-to-go outside an exploration world: the lidar map is built around the drone and the spot
 EXPLORE_MAP_EVERY_S = 0.5  # 🗺 the explorer's map goes to the UI twice a second (sim time)
 CAMERA_SEND_EVERY_S = 0.2  # down-camera pictures go to the UI 5 times a second (sim time)
 PRECLAND_MAX_DIST_M = 12.0  # 🎯 precision landing needs a pad within this distance
@@ -297,7 +298,7 @@ class MissionSim(RealtimeSim):
                 "plan": p.to_dict() if p else None,
                 "footprint_per_m": [CAMERA.footprint_m(1.0)[0], CAMERA.footprint_m(1.0)[1]],
             }
-        if self.explore_args is not None:
+        if self.course_id and self.course_id.startswith("explore_") and self.explore_args is not None:
             w = EXPLORE_WORLDS[self.explore_args["world"]]
             return {"id": self.course_id, "title": w.title, "waypoints": [list(w.start)],
                     "obstacles": [b.to_dict() for b in w.walls], "cruise_alt_m": EXPLORE_ALT_M, "safety_zone_m": 0.0,
@@ -343,6 +344,46 @@ class MissionSim(RealtimeSim):
         return (f"🗺 Exploring {w.title} with only its lidar. Local planner: {LOCAL_PLANNERS[local]}; position: {how}."
                 f"{who} Grey floor = unknown, light = seen free, red = walls it has mapped. Any flying button takes over.")
 
+    def start_goto(self, x_m: float, y_m: float) -> str:
+        """📍 Fly to a clicked spot, finding the way with the lidar (in any scene). In an exploration world it keeps
+        the map it has already built; elsewhere it starts a fresh map (it doesn't get the obstacle list)."""
+        x, y = float(x_m), float(y_m)
+        if not (math.isfinite(x) and math.isfinite(y)):
+            raise ValueError("Click on the ground to pick a spot.")
+        if self.follower is not None:
+            self._take_over()
+        if self.agile_phase is not None:
+            st = self.state
+            self._end_agile(Setpoint(armed=True, alt_m=float(st.pos_m[2]), position_control=True,
+                                     x_m=float(st.pos_m[0]), y_m=float(st.pos_m[1])), finished=False)
+        self.prec_lander = None
+        s = self.state
+        ex = self.explorer
+        reuse = ex is not None and self.course_id and self.course_id.startswith("explore_")
+        if reuse:
+            x0, x1, y0, y1 = ex.w.bounds
+            if not (x0 <= x <= x1 and y0 <= y <= y1):
+                raise ValueError("That's outside this world: click inside the walls.")
+        else:
+            sx, sy = float(s.pos_m[0]), float(s.pos_m[1])
+            if math.hypot(x - sx, y - sy) > GOTO_MAX_M:
+                raise ValueError(f"That's {math.hypot(x - sx, y - sy):.0f} m away: click within {GOTO_MAX_M:.0f} m of the drone.")
+            pad = 8.0
+            bounds = (min(sx, x) - pad, max(sx, x) + pad, min(sy, y) - pad, max(sy, y) + pad)
+            boxes = list(self.mission.obstacles) if self.mission else []
+            ex = Explorer(World("here", boxes, (sx, sy), bounds), "dwa", "gps", False, self.seed)
+            self.explorer = ex
+            self.explore_args = {"world": "here", "local": "dwa", "localisation": "gps", "movers": False}
+        ex.set_target(x, y)
+        self._explore_events_seen = len(ex.events)
+        self._explore_map_sent_s = -1.0
+        flying = self.pilot.sp.armed and not s.on_ground
+        self.explore_phase = "explore" if flying else "takeoff"
+        if not flying:
+            self.pilot.takeoff(s, max(EXPLORE_ALT_M, float(self.pilot.sp.alt_m) if self.pilot.sp.armed else EXPLORE_ALT_M))
+        how = "with what its lidar has mapped so far" if reuse else "with only its lidar: it doesn't know where the obstacles are"
+        return f"📍 Going to ({x:.1f}, {y:.1f}) {how}. It plans a way, and replans when it sees something in the way."
+
     def _explore_setpoint(self, s: State, dt_s: float) -> Setpoint:
         ex = self.explorer
         ex.before_step(self.sim)  # lidar, scan matching, map; crash check on the TRUE position (walls + people)
@@ -355,8 +396,9 @@ class MissionSim(RealtimeSim):
                 return sp
         sp = ex.setpoint_for(self.sim.estimate, s.time_s, s)
         for ev in ex.events[self._explore_events_seen:]:
-            self.notices.append(f"🗺 {ev['message']}")
-            self.pilot.message = f"🗺 {ev['message']}"
+            msg = ev["message"] if ev["message"].startswith("📍") else f"🗺 {ev['message']}"
+            self.notices.append(msg)
+            self.pilot.message = msg
         self._explore_events_seen = len(ex.events)
         if ex.phase == "crashed":
             self.explore_phase = "crashed"
@@ -364,8 +406,8 @@ class MissionSim(RealtimeSim):
             self.pilot = Pilot()  # motors off: idle until Reset
             self.pilot.message = self.notices[-1] if self.notices else "Crashed."
             return Setpoint(armed=False)
-        if ex.phase == "done":
-            self._end_explore(sp, "done")
+        if ex.phase in ("done", "arrived", "unreachable"):
+            self._end_explore(sp, ex.phase)
         return sp
 
     def _end_explore(self, sp: Setpoint, why: str) -> None:
@@ -390,6 +432,7 @@ class MissionSim(RealtimeSim):
                "scan_matches": ex.matches, "brakes": ex.brakes, "goals": len(ex.goals),
                "path": [[round(x, 2), round(y, 2)] for x, y in ex.path],
                "goal": [round(v, 2) for v in ex.grid.center(*ex.goal)] if ex.goal is not None else None,
+               "target": [round(v, 2) for v in ex.target] if ex.target is not None else None,
                "people": movers,
                "tracked": [[round(float(m["c"][0]), 2), round(float(m["c"][1]), 2), round(float(m["v"][0]), 2),
                             round(float(m["v"][1]), 2)] for m in ex.movers_seen]}
@@ -733,6 +776,15 @@ class MissionSim(RealtimeSim):
             return self.set_camera(bool(args.get("enabled", False)))
         if cmd == "agile":
             return self.start_agile(str(args.get("method", "geometric")), float(args.get("tilt_deg", 30.0)))
+        if cmd == "sensors" and self.explore_phase in ("takeoff", "explore"):
+            text = super().command(cmd, **args)
+            est = getattr(self.sim.estimator, "kind", None)
+            if self.explore_args["localisation"] == "slam" and est != "ekf":
+                text += (" 🗺 Note: lidar scan matching (SLAM) needs the Kalman filter, so it is paused: without GPS the "
+                         "position will now drift. Pick Kalman (EKF) again to bring it back.")
+            return text
+        if cmd == "goto_point":
+            return self.start_goto(args.get("x_m"), args.get("y_m"))
         if cmd == "explore":
             return self.start_explore(str(args.get("world", "rooms")), str(args.get("local", "dwa")),
                                       str(args.get("localisation", "gps")), bool(args.get("movers", False)))

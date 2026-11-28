@@ -1,13 +1,13 @@
 // 🎮 Play mode: the 3D world fills the screen, with a few big buttons on top. For kids (and for just flying).
 // Everything else (panels, sliders, telemetry) is in 🔧 Engineer mode, one click away.
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import CameraView from './CameraView';
 import { useKeyboardSticks } from './Controls';
 import { RaceHud } from './RaceView';
 import Scene from './Scene';
 import { sim, useSimUi, useThrottledState } from './sim';
-import { useVoice } from './Voice';
+import { speak, useVoice } from './Voice';
 
 const SCENES: { id: string; icon: string; label: string; run: () => void }[] = [
   { id: 'free', icon: '🎈', label: 'Free fly', run: () => { sim.send('race', { track: null }); sim.send('course', { scenario: null }); } },
@@ -38,11 +38,21 @@ export default function Play({ armLength }: { armLength: number }) {
   const flying = !!s && (s.mode === 'takeoff' || s.mode === 'hover' || s.mode === 'mission' || s.mode === 'precland' || (!!s.explore && (s.explore.phase === 'explore' || s.explore.phase === 'takeoff')) || !!s.agile);
   const where = race ? `🏁 ${race.title}` : course ? course.title : '🎈 Free fly';
   const reply = v.busy || (v.reply ? v.reply.say : 'Press 🎙 and say “take off”!');
+  // say "Arrived!" / "Can't get there" out loud
+  const spoken = useRef('');
+  useEffect(() => {
+    const m = s?.message ?? '';
+    if (m.startsWith('📍') && m !== spoken.current) {
+      spoken.current = m;
+      if (v.talk && !m.startsWith('📍 Going')) speak(m.replace('📍', ''));
+    }
+  }, [s?.message, v.talk]);
 
   return (
     <main className="play">
       <div className="canvas-wrap play-canvas">
-        <Scene armLength={armLength} follow={cam === 'free'} chase={cam === 'behind'} toy />
+        <Scene armLength={armLength} follow={cam === 'free'} chase={cam === 'behind'} toy
+          onGroundClick={(x, y) => { sim.send('goto_point', { x_m: x, y_m: y }); if (v.talk) speak('On my way!'); }} />
         <RaceHud />
         <CameraView />
 
@@ -50,8 +60,13 @@ export default function Play({ armLength }: { armLength: number }) {
           <span className="play-where">{where}</span>
           <span className="play-status">
             {s ? (flying ? `✈ flying · ${s.pos_m[2].toFixed(1)} m up` : s.on_ground ? '🛬 on the ground' : '…') : 'connecting…'}
-            {s?.explore && ` · mapped ${Math.round(s.explore.coverage * 100)} %`}
+            {s?.explore && !s.explore.target && ` · mapped ${Math.round(s.explore.coverage * 100)} %`}
           </span>
+          {s?.est_pos_m && (
+            <span className="play-status play-guess" title="With noisy sensors the drone only GUESSES where it is (the see-through ghost). This is how far its guess is from the truth.">
+              🎯 its guess is <b>{Math.hypot(s.est_pos_m[0] - s.pos_m[0], s.est_pos_m[1] - s.pos_m[1], s.est_pos_m[2] - s.pos_m[2]).toFixed(2)} m</b> off
+            </span>
+          )}
           <span className="spacer" />
           <span className="play-small play-lights" title="Like real aircraft: a red light on the left side, green on the right">
             <b style={{ color: '#ef476f' }}>● left</b> <b style={{ color: '#06d6a0' }}>● right</b>
@@ -94,6 +109,7 @@ export default function Play({ armLength }: { armLength: number }) {
             <button className="play-btn stop" disabled={v.offline} onClick={() => v.send('stop')}>✋ Stop</button>
             <button className="play-btn small" onClick={() => sim.send('reset')} title="Back on the ground at the start">↺</button>
           </div>
+          <div className="play-keys">👆 Click the ground: it finds its own way there · drag to look around · scroll to zoom</div>
           <div className="play-cheats" title="Each key, and what to say instead">
             {CHEATS.map(([keys, say]) => (
               <span key={say} className="play-cheat"><kbd>{keys}</kbd> “{say}”</span>

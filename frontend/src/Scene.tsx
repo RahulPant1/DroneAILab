@@ -489,7 +489,28 @@ function FrameCourse() {
   return null;
 }
 
-export default function Scene({ armLength, follow, chase = false, toy = false }: { armLength: number; follow: boolean; chase?: boolean; toy?: boolean }) {
+/** 📍 An invisible floor that turns a short click (not a drag: dragging turns the view) into a spot on the ground. */
+function GroundClick({ onClick }: { onClick: (x: number, y: number) => void }) {
+  const down = useRef<{ x: number; y: number } | null>(null);
+  return (
+    <mesh
+      position={[0, 0, 0.005]}
+      onPointerDown={(e) => { down.current = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY }; }}
+      onPointerUp={(e) => {
+        const d = down.current;
+        down.current = null;
+        if (!d || Math.hypot(e.nativeEvent.clientX - d.x, e.nativeEvent.clientY - d.y) > 6 || e.nativeEvent.button !== 0) return;
+        e.stopPropagation();
+        onClick(e.point.x, -e.point.z); // three.js (x, y up, z) -> ENU (x east, y north)
+      }}
+    >
+      <planeGeometry args={[400, 400]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+    </mesh>
+  );
+}
+
+export default function Scene({ armLength, follow, chase = false, toy = false, onGroundClick }: { armLength: number; follow: boolean; chase?: boolean; toy?: boolean; onGroundClick?: (x: number, y: number) => void }) {
   return (
     <Canvas frameloop="demand" dpr={[1, 1.5]} camera={{ position: [2.5, 2.2, 3.5], fov: 50, near: 0.05, far: 500 }}>
       <color attach="background" args={['#0f1420']} />
@@ -521,6 +542,7 @@ export default function Scene({ armLength, follow, chase = false, toy = false }:
         <ArduPilotTruth />
         <LidarView />
         <ExploreView />
+        {onGroundClick && <GroundClick onClick={onGroundClick} />}
       </group>
       <OrbitControls makeDefault target={[0, 0.5, 0]} maxPolarAngle={Math.PI / 2 - 0.02} />
       <FollowCamera enabled={follow && !chase} />

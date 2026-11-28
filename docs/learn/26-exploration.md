@@ -28,24 +28,32 @@ Indoors there is no GPS, and the EKF from lesson 24 can only dead-reckon. **Scan
 ## What we measured (42 flights, `docs/results/exploration.md`)
 | Setup | Building (4 rooms + hall) | Forest (22 trees) |
 |---|---|---|
-| DWA + GPS | 3/3 finished, 90–93 % mapped, 90 % in about 30 s | 3/3 finished, 99–100 % |
-| Chase the path + brake | crashed or got stuck every time (54–65 % mapped) | crashed 6/6 |
-| No GPS, motion sensors only | crashed 3/3 within 10 s (up to 8 m wrong) | crashed 3/3 (up to 21 m wrong) |
-| **No GPS + lidar SLAM** | **3/3 finished, error 0.08 m mean, 0.14 m worst** | **3/3 finished, 0.17 m mean, 0.31 m worst** |
-| Someone walking through (DWA) | never hit them | never hit them |
+| DWA + GPS | 3/3 finished, 99 % mapped, 90 % in about 15 s | 3/3 finished, 99–100 % |
+| Chase the path + brake | fine alone (3/3), crashed 2/3 with someone walking | crashed 1/3 alone, 1/3 with the deer |
+| No GPS, motion sensors only | crashed 3/3 within 18 s (up to 18 m wrong) | crashed 3/3 (up to 20 m wrong) |
+| **No GPS + lidar SLAM** | **3/3 finished, error 0.10 m mean, 0.23 m worst** | **3/3 finished, 0.14–0.37 m mean, 0.81 m worst** |
+| Someone walking through (DWA) | never hit them | grazed the deer once (2 cm), in 6 runs |
 
-DWA never touched anything in 24 runs. The building's walls make scan matching sharper than the forest's thin tree trunks.
+DWA had 1 crash in 24 runs (that 2 cm graze); chasing the path had 4 in 12, mostly with something moving: braking can't get out of the way. The building's walls make scan matching sharper than the forest's thin tree trunks.
+
+These are the numbers after two fixes found by **click-to-go** (below): the building's right-hand door was split in half by a wall, and paths hugged door frames. With the first version the explorer only *saw into* two of the rooms, through the half-doors.
 
 Honest limits:
 - With someone walking around, *finishing* can take much longer. The person blocks doorways in the map, so frontiers behind them keep flickering between reachable and not.
 - The world is flat: one height, a 2D lidar, and walls that stand straight up.
 
 ## Bugs we hit (each one is a real lesson)
+0. **A door that was really two half-doors.** Clicking on a far room said "can't get there", and the planner was right: the door into the right-hand rooms opened exactly where the wall between them began, leaving a 1.0 m and a 0.6 m gap. Then paths hugged door frames, so DWA refused the last centimetres. Fix: proper doors, plus a **costmap** (like Nav2's): cells close to walls cost more, so paths run down the middle of doors and corridors. Chasing the path stopped crashing on its own too.
 1. **Doors too narrow for the plan.** A 1.6 m door with a 0.7 m keep-out on each side left 0.2 m, about one grid cell, and the explorer declared itself done at 75 %. Indoors needs a tighter margin (0.5 m), which DWA then enforces moment by moment.
 2. **A map "in cells" is half a cell off.** Our walls sit exactly on grid lines, so every hit landed on a cell edge and the matcher pulled the drone 0.1 m sideways. Sharing each hit between 4 cells fixed a test but made real flights worse. What worked is the model ROS's AMCL uses: remember *where in the cell* the hits really were, and score each beam by its distance to that surface. Error dropped from 0.14 m to 0.08 m in the building, and from 0.38 m to 0.15 m in the forest.
 3. **"Everything ahead is new" is not a reason to distrust a match.** Entering a new room, half the scan sees walls not mapped yet. Rejecting matches on the *average* score threw away good ones; counting how many beams land on *mapped* walls works.
 4. **Freezing gets you hit.** A hovering drone that finds no safe move and stops gets walked into. It must step aside, and it must keep watching even while it is thinking where to go next.
 5. **Walls aren't moving just because a beam grazed them.** A cell counts as "moving" only if it was seen empty far more often than it was hit.
+
+## 📍 Click to go
+Click a spot on the ground (Play mode, or tick 📍 in Engineer mode). The drone plans a way there with only what its lidar has seen. It treats unseen space as open (optimistic), replans when a wall shows up, and DWA keeps it clear of anything close. It works in any scene: the obstacle courses, the farm, or a building it is exploring (where it keeps the map it already built). A spot inside a wall it has seen gets "Can't get there". In the box canyon (a U-shaped trap it doesn't know about) it found the way round in 13 s.
+
+This is how real drones are sent somewhere: QGroundControl's "Go to location" in GUIDED mode, a delivery drop-off, an inspection point. The new part here is that the drone doesn't get a map.
 
 ## Try it
 **Fly view → 🗺 Explore.** Pick the world, the local planner, GPS or not, tick 🚶 *someone walking*, and press ▶ Explore. The floor shows its own map filling in: dark = unknown, light = seen free, red = walls it mapped. The yellow line is its path to the next frontier (green ring). Orange = the person, where they *really* are; yellow rings with arrows = what the drone *thinks* is moving, and where it will be in a second. Any flying button takes over.

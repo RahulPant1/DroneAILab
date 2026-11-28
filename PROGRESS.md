@@ -628,3 +628,12 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   browser detects the end of speech (no second press), hands-free option, greedy Whisper, one-word replies for
   instant commands; Play shows a toy drone (eyes, red-left/green-right lights) with a camera behind it. Not checked
   in a browser; latency not measured with a real voice.
+
+## 📍 Click-to-go + sensor feedback (2026-11-28, "yes add those and commit and push" + click-to-go request)
+- Bug the user hit: switching the filter to Complementary during a no-GPS exploration crashed the live sim (scan
+  matching needs the EKF). Now matching pauses with a message; test added.
+- Play shows "🎯 its guess is X m off" with sensor noise on; Engineer sensor/GPS/filter changes are said out loud.
+- Click-to-go (Play: click the ground; Engineer: tick 📍): lidar-only navigation to the spot in any scene. Found: the
+  building's right-hand door was split by a wall (1.0 m + 0.6 m), so the right rooms were never really entered;
+  fixed, plus a clearance costmap for planning. Re-ran the 42-flight sweep: building 99 % in ~15 s (was 90-93 % /
+  30 s); pursuit crashes 10/12 -> 4/12; DWA 0/24 -> 1/24 (2 cm deer graze, forest); SLAM building 0.10 m mean.

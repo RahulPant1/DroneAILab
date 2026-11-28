@@ -35,7 +35,17 @@ export default function ExploreView() {
     const arrows = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: '#ffd166' }));
     arrows.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_TRACKED * 6), 3));
     arrows.frustumCulled = false;
-    return { path, goal, people, rings, arrows };
+    const pin = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.2, 8), new THREE.MeshStandardMaterial({ color: '#ffd166' }));
+    pole.rotation.x = Math.PI / 2;
+    pole.position.z = 1.1;
+    const flag = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.5, 4), new THREE.MeshStandardMaterial({ color: '#ef476f', emissive: '#ef476f', emissiveIntensity: 0.5 }));
+    flag.rotation.x = -Math.PI / 2;
+    flag.position.z = 2.45;
+    const spot = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.42, 24), new THREE.MeshBasicMaterial({ color: '#ffd166' }));
+    spot.position.z = 0.04;
+    pin.add(pole, flag, spot);
+    return { path, goal, people, rings, arrows, pin };
   }, []);
   const m4 = useMemo(() => new THREE.Matrix4(), []);
   const group = useRef<THREE.Group>(null);
@@ -72,7 +82,9 @@ export default function ExploreView() {
     // path + goal at flying height
     const z = sim.latest ? Math.max(0.2, sim.latest.pos_m[2]) : 1.5;
     objs.path.geometry.setFromPoints(e.path.map(([x, y]) => new THREE.Vector3(x, y, z)));
-    objs.goal.visible = !!e.goal;
+    objs.pin.visible = !!e.target && e.phase !== 'arrived';
+    if (e.target) objs.pin.position.set(e.target[0], e.target[1], 0);
+    objs.goal.visible = !!e.goal && !e.target;
     if (e.goal) objs.goal.position.set(e.goal[0], e.goal[1], 0.06);
     // the people, where they really are
     objs.people.count = e.people.length;
@@ -103,6 +115,7 @@ export default function ExploreView() {
       </mesh>
       <primitive object={objs.path} />
       <primitive object={objs.goal} />
+      <primitive object={objs.pin} />
       <primitive object={objs.people} />
       <primitive object={objs.rings} />
       <primitive object={objs.arrows} />

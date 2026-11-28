@@ -5,7 +5,7 @@ import FieldMap from './FieldMap';
 import MissionPlanner from './MissionPlanner';
 import { api, compassName, sim, useSimUi, useThrottledState, type EkfHealth, type SimState } from './sim';
 import SitlBar from './SitlPanel';
-import VoiceBar from './Voice';
+import VoiceBar, { speak } from './Voice';
 
 // Held keys move the drone. Uses e.code (the physical key), so it works on any keyboard layout
 // and with Shift held. Arrow keys = same as W/A/S/D; Space/Shift = up/down (like flying in games).
@@ -257,11 +257,13 @@ const EXPLORE_LOCAL: Record<string, string> = { dwa: 'DWA (looks at the lidar)',
 const EXPLORE_LOC: Record<string, string> = { gps: 'GPS + EKF', dead_reckoning: 'No GPS: motion sensors only', slam: 'No GPS: lidar SLAM' };
 const EXPLORE_PHASE: Record<string, string> = {
   takeoff: 'taking off', explore: 'exploring', done: '✅ finished', crashed: '💥 crashed', stopped: 'stopped (you have the controls)',
+  arrived: '📍 arrived', unreachable: '📍 can’t get there',
 };
 
 /** 🗺 Autonomous exploration: drop the drone into an unknown place and watch it map it alone. */
 function ExploreBar({ s, offline, onLearn }: { s: SimState | null; offline: boolean; onLearn: (slug: string) => void }) {
   const [opt, setOpt] = useState({ world: 'rooms', local: 'dwa', localisation: 'gps', movers: false });
+  const [clickGo, setClickGo] = useState(sim.clickToGo);
   const e = s?.explore;
   return (
     <div className="row small explore-bar">
@@ -281,6 +283,9 @@ function ExploreBar({ s, offline, onLearn }: { s: SimState | null; offline: bool
       <button className="primary" disabled={offline} onClick={() => sim.send('explore', opt)} title="Loads the world, switches on sensor noise + the Kalman filter, takes off and explores. Any flying button takes over.">
         ▶ Explore
       </button>
+      <label className="inline" title="Click a spot on the ground in the 3D view: the drone finds its own way there with its lidar (any scene). Dragging still turns the view.">
+        <input type="checkbox" checked={clickGo} onChange={(ev) => { sim.clickToGo = ev.target.checked; setClickGo(ev.target.checked); }} /> 📍 click the ground to send it
+      </label>
       <button className="link" onClick={() => onLearn('26-exploration')}>📖 Learn: exploration</button>
       {e && (
         <span className="keys">
@@ -477,6 +482,22 @@ function WindBar({ status, onLearn }: { status: string; onLearn: (slug: string) 
   );
 }
 
+/** Say a setting change out loud (if 🔊 is on), in kid words: these settings change nothing you can hear or see at
+ *  once, so say what they mean. */
+function sayChange(a: Record<string, unknown>, b: Record<string, unknown>) {
+  let talk = true;
+  try { talk = localStorage.getItem('dronelab.voice.talk') !== '0'; } catch { /* default on */ }
+  if (!talk) return;
+  const line =
+    a.on !== b.on ? (b.on ? 'Sensors are noisy now. The drone has to guess where it is: watch the see-through ghost.' : 'Perfect sensors. The drone knows exactly where it is.')
+    : a.ekf !== b.ekf ? (b.ekf ? 'Kalman filter: a smarter guess. It learns from GPS speed too.' : 'Simple filter: an easier, rougher guess.')
+    : a.gps !== b.gps ? (b.gps ? 'GPS noise is back.' : 'Perfect GPS. Only the other sensors are noisy now.')
+    : a.outage !== b.outage ? (b.outage ? 'GPS lost! It can only guess from its motion sensors, and the guess drifts.' : 'GPS is back.')
+    : a.glitch !== b.glitch ? (b.glitch ? 'GPS glitch: the GPS says it is five metres east. Will the drone believe it?' : 'GPS glitch over.')
+    : a.level !== b.level ? `Sensor noise ${b.level} times normal.` : '';
+  if (line) speak(line);
+}
+
 /** Noisy sensors on/off. With them on, the controller flies on its ESTIMATE (the ghost drone in 3D).
  *  Second row: GPS outage and the GPS-loss failsafe, with the failsafe's own settings grouped together. */
 function SensorBar({ s, status, onLearn }: { s: SimState | null; status: string; onLearn: (slug: string) => void }) {
@@ -484,6 +505,7 @@ function SensorBar({ s, status, onLearn }: { s: SimState | null; status: string;
   const change = (patch: Partial<typeof sensors>) => {
     const v = { ...sensors, ...patch };
     setSensors(v);
+    sayChange(sensors, v);
     if (v.on !== sensors.on || v.level !== sensors.level || v.gps !== sensors.gps || v.ekf !== sensors.ekf)
       sim.send('sensors', { enabled: v.on, noise_scale: v.level, gps_noise: v.gps, estimator: v.ekf ? 'ekf' : 'complementary' });
     if (v.glitch !== sensors.glitch) sim.send('gps_glitch', { on: v.glitch });

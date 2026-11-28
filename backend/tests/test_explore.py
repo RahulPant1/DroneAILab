@@ -184,3 +184,76 @@ def test_live_explore_hands_over_to_a_flying_button():
         rt.command("explore", world="moon")
     rt.command("course", scenario=None)
     assert rt.course_info() is None
+
+
+def test_switching_to_the_simple_filter_mid_slam_pauses_matching_instead_of_crashing():
+    """Real bug (2026-11-28): choosing 'Complementary' during a no-GPS exploration crashed the live sim."""
+    from backend.autonomy.live import MissionSim
+    from backend.sim.config import get_preset
+
+    rt = MissionSim(get_preset("basic"), seed=0)
+    rt.command("explore", world="rooms", localisation="slam")
+    for _ in range(80):
+        rt.advance(0.05)
+    assert "paused" in rt.command("sensors", enabled=True, noise_scale=1.0, estimator="complementary")
+    for _ in range(60):
+        rt.advance(0.05)  # no crash
+    matches = rt.explorer.matches
+    rt.command("sensors", enabled=True, noise_scale=1.0, estimator="ekf")
+    for _ in range(60):
+        rt.advance(0.05)
+    assert rt.explore_phase in ("explore", "done") and rt.explorer.matches > matches  # matching resumed
+
+
+def _fly_until_done(rt, max_steps=1600):
+    for _ in range(max_steps):
+        rt.advance(0.05)
+        if rt.explore_phase not in ("takeoff", "explore"):
+            return
+
+
+def test_click_to_go_finds_its_own_way_in_a_course_it_doesnt_know():
+    from backend.autonomy.live import MissionSim
+    from backend.sim.config import get_preset
+
+    rt = MissionSim(get_preset("basic"), seed=0)
+    rt.command("course", scenario="box_canyon")  # a U-shaped trap between the start and the goal
+    goal = rt.course_info()["waypoints"][-1]
+    assert "Going to" in rt.command("goto_point", x_m=goal[0], y_m=goal[1])  # from the ground: it takes off first
+    _fly_until_done(rt)
+    assert rt.explore_phase == "arrived" and math.dist(rt.state.pos_m[:2], goal) < 0.6
+    assert rt.explorer.min_clear_m > 0.1 and rt.snapshot()["explore"]["target"] == [goal[0], goal[1]]
+
+
+@pytest.mark.parametrize("spot", [(14.0, 10.0), (14.0, 2.0), (2.0, 10.0), (2.0, 2.0)])
+def test_click_to_go_reaches_every_room_of_the_building(spot):
+    """Every room must be flyable into: the first version of the building had a door split in half by a wall."""
+    from backend.autonomy.live import MissionSim
+    from backend.sim.config import get_preset
+
+    rt = MissionSim(get_preset("basic"), seed=0)
+    rt.command("explore", world="rooms")
+    for _ in range(60):
+        rt.advance(0.05)
+    rt.command("goto_point", x_m=spot[0], y_m=spot[1])
+    _fly_until_done(rt)
+    assert rt.explore_phase == "arrived", rt.notices[-3:]
+
+
+def test_click_to_go_refuses_walls_and_far_away_spots():
+    from backend.autonomy.live import MissionSim
+    from backend.sim.config import get_preset
+
+    rt = MissionSim(get_preset("basic"), seed=0)
+    rt.command("explore", world="rooms")
+    for _ in range(80):
+        rt.advance(0.05)
+    rt.command("goto_point", x_m=6.1, y_m=5.0)  # inside the wall it has already seen
+    for _ in range(40):
+        rt.advance(0.05)
+    assert rt.explore_phase == "unreachable" and "Can't get there" in rt.notices[-1]
+    with pytest.raises(ValueError):
+        rt.command("goto_point", x_m=40.0, y_m=40.0)  # outside the building
+    rt.command("course", scenario=None)
+    with pytest.raises(ValueError):
+        rt.command("goto_point", x_m=200.0, y_m=0.0)  # too far in the open

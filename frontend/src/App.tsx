@@ -12,7 +12,7 @@ import Lab from './Lab';
 import Learn from './Learn';
 import Play from './Play';
 import Scene from './Scene';
-import { api, useSimUi, useThrottledState, type Health } from './sim';
+import { api, sim, useSimUi, useThrottledState, type Health } from './sim';
 import Studio from './Studio';
 import Telemetry from './Telemetry';
 
@@ -114,7 +114,8 @@ export default function App() {
           <Studio onLearn={setLearnSlug} />
           <section className="viewport">
             <div className="canvas-wrap">
-              <Scene armLength={config?.arm_length_m ?? 0.225} follow={follow} />
+              <Scene armLength={config?.arm_length_m ?? 0.225} follow={follow}
+                onGroundClick={(x, y) => { if (sim.clickToGo) sim.send('goto_point', { x_m: x, y_m: y }); }} />
               <MessageBar />
               <RaceHud />
               <CameraView />

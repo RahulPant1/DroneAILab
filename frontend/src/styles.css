@@ -453,3 +453,4 @@ main.play { flex: 1; min-height: 0; display: flex; }
 .play-cheat kbd { display: inline-block; min-width: 18px; text-align: center; font-size: 11px; padding: 1px 4px; margin-right: 3px;
   border: 1px solid #4a5a78; border-radius: 4px; background: #1b2333; }
 .play-cheat kbd:empty { display: none; }
+.play-guess b { color: #ffd166; }
