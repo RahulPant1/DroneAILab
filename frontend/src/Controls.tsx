@@ -159,6 +159,7 @@ export default function Controls({ follow, setFollow, onLearn, onOpenLog }: { fo
       </div>
       <RaceBar s={s} offline={offline} onLearn={onLearn} />
       <MissionBar s={s} offline={offline} onLearn={onLearn} />
+      <ExploreBar s={s} offline={offline} onLearn={onLearn} />
       <FormationBar status={status} onLearn={onLearn} />
       <WindBar status={status} onLearn={onLearn} />
       <SensorBar s={s} status={status} onLearn={onLearn} />
@@ -249,6 +250,47 @@ const PLANNER_LABELS: Record<string, string> = {
 const PHASE_LABELS: Record<string, string> = { gps: 'waiting for GPS to settle', takeoff: 'taking off', cruise: 'flying the route', land: 'landing' };
 
 /** Load a course into the 3D world, and let the mission autopilot fly it (or fly it yourself). */
+const EXPLORE_WORLDS: Record<string, string> = { rooms: 'A building: 4 rooms + hall', forest: 'A fenced forest: 22 trees' };
+const EXPLORE_LOCAL: Record<string, string> = { dwa: 'DWA (looks at the lidar)', pursuit: 'Chase the path + brake' };
+const EXPLORE_LOC: Record<string, string> = { gps: 'GPS + EKF', dead_reckoning: 'No GPS: motion sensors only', slam: 'No GPS: lidar SLAM' };
+const EXPLORE_PHASE: Record<string, string> = {
+  takeoff: 'taking off', explore: 'exploring', done: '✅ finished', crashed: '💥 crashed', stopped: 'stopped (you have the controls)',
+};
+
+/** 🗺 Autonomous exploration: drop the drone into an unknown place and watch it map it alone. */
+function ExploreBar({ s, offline, onLearn }: { s: SimState | null; offline: boolean; onLearn: (slug: string) => void }) {
+  const [opt, setOpt] = useState({ world: 'rooms', local: 'dwa', localisation: 'gps', movers: false });
+  const e = s?.explore;
+  return (
+    <div className="row small explore-bar">
+      <span title="Drop the drone into a place it has never seen, with only its lidar, and let it map it by itself">🗺 Explore</span>
+      <select value={opt.world} disabled={offline} onChange={(ev) => setOpt({ ...opt, world: ev.target.value })} title="Where to drop it">
+        {Object.entries(EXPLORE_WORLDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      </select>
+      <select value={opt.local} disabled={offline} onChange={(ev) => setOpt({ ...opt, local: ev.target.value })} title="Local planner: how it picks its velocity moment to moment">
+        {Object.entries(EXPLORE_LOCAL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      </select>
+      <select value={opt.localisation} disabled={offline} onChange={(ev) => setOpt({ ...opt, localisation: ev.target.value })} title="How it knows where it is">
+        {Object.entries(EXPLORE_LOC).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      </select>
+      <label className="inline" title="Someone walks back and forth while it explores (orange). Yellow rings = what the drone thinks is moving; the arrow = where it will be in 1 s.">
+        <input type="checkbox" checked={opt.movers} disabled={offline} onChange={(ev) => setOpt({ ...opt, movers: ev.target.checked })} /> 🚶 someone walking
+      </label>
+      <button className="primary" disabled={offline} onClick={() => sim.send('explore', opt)} title="Loads the world, switches on sensor noise + the Kalman filter, takes off and explores. Any flying button takes over.">
+        ▶ Explore
+      </button>
+      <button className="link" onClick={() => onLearn('26-exploration')}>📖 Learn: exploration</button>
+      {e && (
+        <span className="keys">
+          {EXPLORE_PHASE[e.phase] ?? e.phase} · mapped <b>{Math.round(e.coverage * 100)} %</b> · {e.goals} frontiers ·
+          position error {e.est_err_m.toFixed(2)} m{e.localisation === 'slam' ? ` · ${e.scan_matches} scan matches` : ''}
+          {e.brakes > 0 ? ` · braked ${e.brakes}×` : ''}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function MissionBar({ s, offline, onLearn }: { s: SimState | null; offline: boolean; onLearn: (slug: string) => void }) {
   const { course, cropmaps } = useSimUi();
   const [showMap, setShowMap] = useState(false);
@@ -273,6 +315,7 @@ function MissionBar({ s, offline, onLearn }: { s: SimState | null; offline: bool
           <select value={course?.id ?? ''} disabled={offline} onChange={(e) => sim.send('course', { scenario: e.target.value || null })}>
             <option value="">Free flight (no obstacles)</option>
             <option value="farm">🌾 Hillside farm (surveys, deliveries, landing pads)</option>
+            {course?.explore && <option value={course.id}>🗺 {course.title} (exploring)</option>}
             {Object.entries(scenarios).map(([id, sc]) => <option key={id} value={id}>{sc.title}</option>)}
           </select>
         </label>
@@ -293,7 +336,7 @@ function MissionBar({ s, offline, onLearn }: { s: SimState | null; offline: bool
             {cropmaps.length > 0 && <button onClick={() => setShowMap(true)} title="The crop-health map stitched from the last survey's photos">🗺 Field map</button>}
           </>
         )}
-        {course && !farm && (
+        {course && !farm && !course.explore && (
           <>
             <label className="inline" title="How the autopilot gets past obstacles">
               planner

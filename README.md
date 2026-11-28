@@ -51,6 +51,8 @@ Found along the way: ArduPilot's GUIDED input shaper has a 5 m/s³ jerk limit (`
 
 **A Kalman filter (EKF), checked against ArduPilot's EKF3 on the same sensor data.** DroneLab's new 12-state error-state EKF fuses GPS velocity, learns the gyro bias and rejects outliers with EKF3's 5-sigma innovation gates. Same flight, same noise (Lab experiment 12): the figure eight goes from 6/8 to **8/8 rings**, and a 5 m GPS glitch moves the drone **0.3 m instead of 8.9 m**. Then real ArduCopter was flown with `LOG_REPLAY = 1` and its raw IMU/GPS/baro/compass inputs were fed through our filter ([results](docs/results/ekf-compare.md)). Both rejected the glitch. A sudden gyro bias showed where EKF3's extra machinery pays: it never got lost, while ours did with the same slow tuning.
 
+**Autonomous exploration: dropped into an unknown place, it maps it alone.** A log-odds lidar map that knows what it hasn't seen, frontier exploration, a **Dynamic Window Approach** local planner that tracks people walking past, and **lidar SLAM** (scan matching into the EKF) for flying without GPS. 42 flights in a building and a forest ([results](docs/results/exploration.md)): DWA never touched anything in 24 runs, while chasing the path cut corners and crashed in most runs. Without GPS, the motion sensors alone were metres off and crashed within 10 s; **with scan matching, 0.08 m mean error** in the building. Watch it live in the Fly view (🗺 Explore): its map fills in on the floor while it flies. The ideas behind ROS 2's Nav2 and slam_toolbox, in NumPy, with no ROS install.
+
 **Motor vibration and the notch filter.** ArduPilot SITL shakes the gyro at each rotor's spin rate. DroneLab's log doctor runs an FFT on the batch-sampler data, finds the peak (192 Hz) and recommends a harmonic notch. Flown again: 80 Hz low-pass + notch leaves **0.12 deg/s** of motor noise with **3.1 ms** of gyro delay, against 0.28 deg/s and 12 ms for ArduPilot's default 20 Hz low-pass ([results](docs/results/vibration.md)).
 
 **7. Tested like flight software.** On every push, GitHub Actions runs the test suite, builds the web app, **compiles ArduCopter and flies it**: a full mission, the DroneLab panel, an offboard trajectory, and all 11 fault scenarios.
@@ -62,6 +64,7 @@ Found along the way: ArduPilot's GUIDED input shaper has a 5 m/s³ jerk limit (`
 |---|---|
 | Flight dynamics, control (cascaded PID, geometric SE(3) with feedforward), state estimation | [backend/sim/](backend/sim/) |
 | Minimum-snap trajectory generation (gates, time allocation, limit fitting) | [backend/autonomy/trajectory.py](backend/autonomy/trajectory.py), [agile.py](backend/autonomy/agile.py) |
+| Autonomous exploration: log-odds mapping, frontiers, DWA with moving-obstacle tracking, lidar scan-matching SLAM | [backend/autonomy/explore.py](backend/autonomy/explore.py), [results](docs/results/exploration.md) |
 | State estimation: error-state EKF, innovation gates, replay of ArduPilot's EKF3 inputs | [backend/sim/ekf.py](backend/sim/ekf.py), [backend/sitl/ekf_replay.py](backend/sitl/ekf_replay.py), [results](docs/results/ekf-compare.md) |
 | Vibration analysis (FFT of batch-sampled gyro), filter delay vs noise, notch recommendation | [backend/logdoctor/spectrum.py](backend/logdoctor/spectrum.py), [backend/sitl/vibration.py](backend/sitl/vibration.py), [results](docs/results/vibration.md) |
 | Companion-computer split (perception process -> LANDING_TARGET / OBSTACLE_DISTANCE -> ArduPilot) | [backend/companion/](backend/companion/), [results](docs/results/companion.md) |
@@ -77,7 +80,7 @@ Found along the way: ArduPilot's GUIDED input shaper has a 5 m/s³ jerk limit (`
 | Real-time 3D UI (React, Three.js, WebSocket) | [frontend/src/](frontend/src/) |
 | Local LLM integration with grounding and validation | [backend/ai/](backend/ai/) |
 | CI with hardware-free flight tests | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
-| Teaching material: 25 lessons with self-checks | [docs/learn/](docs/learn/) |
+| Teaching material: 26 lessons with self-checks | [docs/learn/](docs/learn/) |
 
 ---
 
@@ -125,7 +128,7 @@ In the app: **Fly** tab → **🛰 ArduPilot** → Start. The real autopilot fli
 
 Map ground station: `./scripts/qgc_setup.sh` once (QGroundControl 4.4.5, ~550 MB in `external/`; it needs `sudo apt install libgstreamer-gl1.0-0 libgstreamer-plugins-base1.0-0 libpulse-mainloop-glib0`), then `./scripts/qgc.sh`. If the 🛰 panel is running, QGroundControl joins the same flight.
 
-Lessons: [12 · ArduPilot SITL](docs/learn/12-ardupilot-sitl.md), [13 · Fault injection](docs/learn/13-fault-injection.md), [14 · Flight logs](docs/learn/14-flight-logs.md), [17 · Surveys](docs/learn/17-survey.md), [18 · Precision landing](docs/learn/18-precision-landing.md), [19 · AI mission planner](docs/learn/19-ai-mission-planner.md), [20 · Crop-health maps](docs/learn/20-crop-health.md), [21 · Agile flight](docs/learn/21-trajectories.md), [22 · Offboard control + open-source to learn from](docs/learn/22-offboard-ardupilot.md), [23 · Companion computer](docs/learn/23-companion-computer.md), [24 · Kalman filter](docs/learn/24-kalman-filter.md), [25 · Vibration and filters](docs/learn/25-vibration-and-filters.md). Ideas for real hardware, waiting for a decision: [docs/discuss-later.md](docs/discuss-later.md). Analyse a log from the terminal: `.venv/bin/python -m backend.logdoctor.analyze path/to/log.BIN`.
+Lessons: [12 · ArduPilot SITL](docs/learn/12-ardupilot-sitl.md), [13 · Fault injection](docs/learn/13-fault-injection.md), [14 · Flight logs](docs/learn/14-flight-logs.md), [17 · Surveys](docs/learn/17-survey.md), [18 · Precision landing](docs/learn/18-precision-landing.md), [19 · AI mission planner](docs/learn/19-ai-mission-planner.md), [20 · Crop-health maps](docs/learn/20-crop-health.md), [21 · Agile flight](docs/learn/21-trajectories.md), [22 · Offboard control + open-source to learn from](docs/learn/22-offboard-ardupilot.md), [23 · Companion computer](docs/learn/23-companion-computer.md), [24 · Kalman filter](docs/learn/24-kalman-filter.md), [25 · Vibration and filters](docs/learn/25-vibration-and-filters.md), [26 · Exploration](docs/learn/26-exploration.md). Ideas for real hardware, waiting for a decision: [docs/discuss-later.md](docs/discuss-later.md). Analyse a log from the terminal: `.venv/bin/python -m backend.logdoctor.analyze path/to/log.BIN`.
 
 ## Tests
 ```bash
@@ -153,7 +156,7 @@ backend/sitl/       ArduPilot SITL: launch, MAVLink flight, panel bridge, offboa
 backend/ai/         Ollama client, prompts, schema validation, assistant, AI mission planner
 backend/logdoctor/  ArduPilot log reader, engineer's checks, LLM debrief
 backend/experiments/ the Lab experiments          backend/games/  rings race
-frontend/src/       React + Three.js UI           docs/learn/     25 lessons
+frontend/src/       React + Three.js UI           docs/learn/     26 lessons
 backend/companion/  companion-computer process (camera + lidar perception -> MAVLink)
 docs/PRD.md         the spec it was built to      PROGRESS.md     build log, measurements, what didn't work
 ```

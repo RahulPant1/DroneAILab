@@ -48,6 +48,7 @@ export interface SimState {
   mission: MissionStatus | null; // set while the mission autopilot is flying
   race: RaceStatus | null; // set while a rings-race track is loaded
   agile: AgileStatus | null; // ✈ race autopilot flying (null = off)
+  explore: ExploreStatus | null; // 🗺 autonomous exploration (kept after it ends, to show the map)
   formation: FormationStatus | null; // set while wingmen are flying with you
   sitl: SitlStatus | null; // the 🛰 ArduPilot panel (real ArduCopter SITL), null until it's used
   battery: BatteryStatus | null; // null = unlimited power (battery off)
@@ -266,6 +267,33 @@ export interface RaceTrack {
 }
 
 /** ✈ Race autopilot, in every state frame while it flies. */
+/** 🗺 Autonomous exploration (backend/autonomy/explore.py). */
+export interface ExploreMap {
+  x0: number; // world position of cell (0, 0)'s corner
+  y0: number;
+  res: number; // cell size (m)
+  nx: number;
+  ny: number;
+  cells: string; // base64 bytes, ny rows of nx: 0 unknown, 1 free, 2 wall
+}
+export interface ExploreStatus {
+  world: string;
+  local: string;
+  localisation: string;
+  movers: boolean;
+  phase: 'takeoff' | 'explore' | 'done' | 'crashed' | 'stopped';
+  coverage: number; // 0..1 of the real floor
+  est_err_m: number; // estimate vs truth (only the simulator knows)
+  scan_matches: number;
+  brakes: number;
+  goals: number;
+  path: [number, number][];
+  goal: [number, number] | null;
+  people: [number, number, number][]; // where people really are: x, y, size
+  tracked: [number, number, number, number][]; // what the drone thinks is moving: x, y, vx, vy
+  map?: ExploreMap; // only every 0.5 s
+}
+
 export interface AgileStatus {
   method: string; // waypoints | pid_ff | geometric
   phase: 'climb' | 'fly';
@@ -314,6 +342,7 @@ export interface Course {
   site?: Site; // 🌾 the farm (fields, no-fly zones, pads...)
   plan?: FlightPlan | null; // the flight plan being flown on the farm
   footprint_per_m?: [number, number]; // photo footprint (across, along) per metre of height
+  explore?: boolean; // 🗺 an exploration world: walls drawn see-through, no keep-out lines
 }
 
 export interface Derived {

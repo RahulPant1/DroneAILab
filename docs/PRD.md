@@ -229,6 +229,9 @@ independent cross-check of the solver. Then (2026-11-23) the companion-computer 
 separate process sending LANDING_TARGET / OBSTACLE_DISTANCE to ArduPilot SITL; approved: "go ahead with #3 sim half").
 Then (2026-11-23) a Kalman filter (error-state EKF, experiment 12, replayed on ArduPilot EKF3's logged inputs) and
 motor vibration / notch-filter analysis in the log doctor (approved: "go ahead with #1 EKF and then #2").
+Then (2026-11-28) autonomous exploration: frontier exploration, a DWA local planner with moving-obstacle tracking, and
+lidar scan-matching SLAM without GPS (approved: "go ahead with #1 exploration and #2 and #3"). ROS 2 itself was
+declined by the user (RAM / disk); its navigation ideas are written here in NumPy instead.
 Real hardware, firmware hardening and commercial ideas are parked in docs/discuss-later.md (not approved).
 
 ### Roadmap (do NOT install or scaffold)

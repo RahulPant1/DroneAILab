@@ -10,6 +10,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import CourseView, { courseBounds } from './CourseView';
+import ExploreView from './ExploreView';
 import FarmView, { siteBounds } from './FarmView';
 import Label from './Label3D';
 import RaceView, { raceBounds } from './RaceView';
@@ -445,6 +446,7 @@ export default function Scene({ armLength, follow }: { armLength: number; follow
         <ArduPilotDrone armLength={armLength} />
         <ArduPilotTruth />
         <LidarView />
+        <ExploreView />
       </group>
       <OrbitControls makeDefault target={[0, 0.5, 0]} maxPolarAngle={Math.PI / 2 - 0.02} />
       <FollowCamera enabled={follow} />

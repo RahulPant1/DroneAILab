@@ -11,7 +11,7 @@ const WP_DONE = new THREE.Color('#06d6a0');
 const WP_NEXT = new THREE.Color('#ffd166');
 const WP_LATER = new THREE.Color('#d8dee9');
 
-function Obstacle({ box }: { box: CourseBox }) {
+function Obstacle({ box, ghost = false }: { box: CourseBox; ghost?: boolean }) {
   const w = box.x_max - box.x_min, d = box.y_max - box.y_min, h = box.height_m;
   const edges = useMemo(() => new THREE.EdgesGeometry(new THREE.BoxGeometry(w, d, h)), [w, d, h]);
   useEffect(() => () => edges.dispose(), [edges]);
@@ -19,7 +19,7 @@ function Obstacle({ box }: { box: CourseBox }) {
     <group position={[(box.x_min + box.x_max) / 2, (box.y_min + box.y_max) / 2, h / 2]}>
       <mesh>
         <boxGeometry args={[w, d, h]} />
-        <meshStandardMaterial color="#5c677d" transparent opacity={0.8} />
+        <meshStandardMaterial color="#5c677d" transparent opacity={ghost ? 0.25 : 0.8} depthWrite={!ghost} />
       </mesh>
       <lineSegments geometry={edges}>
         <lineBasicMaterial color="#aab4c8" />
@@ -100,8 +100,8 @@ export default function CourseView({ course }: { course: Course }) {
     <group>
       {course.obstacles.map((b, i) => (
         <group key={i}>
-          <Obstacle box={b} />
-          <KeepOut box={b} zone={course.safety_zone_m} />
+          <Obstacle box={b} ghost={course.explore} />
+          {!course.explore && <KeepOut box={b} zone={course.safety_zone_m} />}
         </group>
       ))}
       <Waypoints course={course} />

@@ -188,7 +188,7 @@ def client(tmp_path, monkeypatch):
 
 def test_api_lab_flow(client):
     exps = client.get("/api/experiments").json()
-    assert [e["number"] for e in exps] == list(range(1, 13))
+    assert [e["number"] for e in exps] == list(range(1, 14))
     res = client.post("/api/experiments/pid_tuning/run", json={"params": {"kp": 25}}).json()
     assert res["metrics"]["oscillations"] >= 3 and res["plots"]
     bad = client.post("/api/experiments/pid_tuning/run", json={"params": {"kp": 999}})

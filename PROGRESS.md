@@ -585,3 +585,21 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   (cookbook peaking cut) gave 12.7° lag at 10 Hz, wrong: rebuilt with bandwidth-set poles (1.3° added).
 - Live: filter select (Complementary / Kalman) + ⚡ GPS glitch + 🧮 EKF health line; Logs: gyro spectrum chart. UI not
   checked in a browser (frontend build passes).
+
+## 🗺 Autonomous exploration (2026-11-28, user-approved: "go ahead with #1 exploration adn #2 and #3"; ROS 2 declined)
+- `backend/autonomy/explore.py` + Lab experiment 13 + lesson 26. Worlds: building (4 rooms + hall, 16 x 12 m) and fenced
+  forest (22 trees, 20 x 20 m), each with an optional walking "person". 42-flight sweep (3 seeds) in
+  docs/results/exploration.md: DWA 0 crashes in 24 runs; pursuit crashed 10/12 or got stuck; no-GPS dead reckoning
+  crashed 6/6 within ~10 s (3-21 m wrong); SLAM finished 6/6 without movers, 0.08 m mean / 0.14 worst (building),
+  0.17 / 0.31 (forest).
+- What went wrong first: (1) 1.6 m doors + 0.7 m keep-out = no passage, "done" at 75 %: keep-out 0.5 m, doors 1.8 m.
+  (2) DWA ran every control step (250 Hz): 10 Hz now. (3) Scan matching rejected matches on mean score (new rooms
+  half-unmapped): now counts beams on mapped walls. (4) Half-cell bias (walls on grid lines; blurred cell field);
+  sub-cell splatting tried and reverted (flights worse); per-cell mean hit position + Gaussian distance score fixed it
+  (building 0.14 -> 0.08 m, forest 0.38 -> 0.15 m). (5) People walked into a hovering drone: DWA always runs (even with
+  no path), moving hits tracked with velocity (cell seen free >= 3 and > 2x hit), 0.6 m margin, escape = most room at
+  0.5 s. Remaining: with a person around, finishing can take 200+ s (doorways flicker in the map).
+- Lab: the existing map plot draws discovered cells / estimate / numbered goals. Live Fly view (user asked: "yes build
+  the live Fly View"): 🗺 Explore bar + ExploreView (map on the floor, path, goal, people, tracked movers + velocity
+  arrows), see-through walls. Live run, building + SLAM + person: 88 % in 22 s, ~2x faster than real time, 12 kB state
+  frames (map every 0.5 s). Tested over the sim API; NOT checked in a browser (frontend build passes).
