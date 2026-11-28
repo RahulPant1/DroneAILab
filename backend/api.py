@@ -35,6 +35,10 @@
                                WS {"cmd": "plan", "spec": {...}} flies it (re-checked; refused if any check FAILs);
                                WS {"cmd": "precland", "mode": "vision"|"gps"}, {"cmd": "camera", "enabled"}, {"cmd": "speed", "factor"}
 
+  GET  /api/voice/status       -> 🎙 {available, detail, loaded}
+  POST /api/voice/transcribe   -> raw audio body (webm/ogg/wav) -> {text, seconds} (offline Whisper, CPU)
+                               WS {"cmd": "voice", "text": "..."} runs it (quick phrases at once; else the local LLM picks
+                               actions; anything that flies a route waits for "go"; "stop" always wins)
   POST /api/assistant/ask      -> {question, context: [run refs], history} -> grounded answer
   POST /api/assistant/suggest  -> {context: [run refs], goal} -> validated suggestion (never auto-run)
   A run ref is {"saved_id": "..."} or {"experiment_id": "...", "params": {...}, "seed": 0, "label": "..."}.
@@ -72,6 +76,8 @@ from .experiments import EXPERIMENTS, ExperimentError, get_experiment
 from .sim import builder
 from .sim.config import GAIN_LIMITS, LIMITS, PRESETS, ConfigError, DroneConfig, get_preset, validate_config
 from .autonomy.live import MissionSim
+from .voice import commands as voice
+from .voice import stt
 from .games.race import TRACKS, load_best_times
 from .logdoctor import store as logstore
 from .logdoctor.analyze import analyze as analyze_log
@@ -442,6 +448,42 @@ async def _with_ai(call):
             raise HTTPException(400, str(exc)) from None
 
 
+@app.get("/api/voice/status")
+def voice_status() -> dict:
+    ok, detail = stt.available()
+    return {"available": ok, "detail": detail, "loaded": stt.loaded()}
+
+
+@app.post("/api/voice/transcribe")
+async def voice_transcribe(request: Request) -> dict:
+    audio = await request.body()
+    try:
+        return await asyncio.to_thread(stt.transcribe, audio)
+    except stt.VoiceUnavailable as exc:
+        raise HTTPException(503, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+async def voice_command(session: MissionSim, text: str, outbox: list[dict]) -> None:
+    """One heard sentence. Quick phrases run at once; AI ones take the AI lock (one at a time)."""
+    def run(msg: dict) -> dict | None:
+        return handle_message(session, msg)
+
+    try:
+        if voice.is_quick(text):
+            replies = await voice.handle(session, text, run, get_ai_client, lambda: False)
+        elif _ai_lock.locked():
+            replies = await voice.handle(session, text, run, get_ai_client, lambda: True)
+        else:
+            async with _ai_lock:
+                replies = await voice.handle(session, text, run, get_ai_client, lambda: False)
+    except Exception as exc:  # noqa: BLE001  (never let a voice task die silently)
+        replies = [{"type": "voice", "heard": text, "say": f"Something went wrong: {exc}", "source": "error",
+                    "pending": False, "actions": []}]
+    outbox.extend(replies)
+
+
 @app.post("/api/assistant/ask")
 async def assistant_ask(body: dict) -> dict:
     runs = await _resolve_context(body.get("context"))
@@ -499,12 +541,18 @@ async def ws_sim(ws: WebSocket) -> None:
     session = MissionSim(get_preset("basic"))
     outbox: list[dict] = [{"type": "config", "config": session.config.to_dict(), "course": None, "race": None, "message": "Connected."}]
 
+    voice_tasks: set[asyncio.Task] = set()
+
     async def receive_loop() -> None:
         while True:
             try:
                 msg = await ws.receive_json()
             except (ValueError, KeyError):
                 outbox.append({"type": "error", "message": "Could not read that message (expected JSON)."})
+                continue
+            if isinstance(msg, dict) and msg.get("cmd") == "voice":
+                voice_tasks.add(t := asyncio.create_task(voice_command(session, str(msg.get("text") or ""), outbox)))
+                t.add_done_callback(voice_tasks.discard)
                 continue
             reply = handle_message(session, msg)
             if reply:

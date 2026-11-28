@@ -603,3 +603,16 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   the live Fly View"): 🗺 Explore bar + ExploreView (map on the floor, path, goal, people, tracked movers + velocity
   arrows), see-through walls. Live run, building + SLAM + person: 88 % in 22 s, ~2x faster than real time, 12 kB state
   frames (map every 0.5 s). Tested over the sim API; NOT checked in a browser (frontend build passes).
+
+## 🎙 Voice commands (2026-11-28, user-approved: "yes go ahead, use the shared cache")
+- Found (read-only): Systran/faster-whisper-small in ~/.cache/huggingface/hub (from ClipForge), Qwen3-TTS models
+  (too heavy, not used). Handy's Windows model folder (AppData/Roaming/com.pais.handy/models) was empty; a wider
+  Windows search was too slow over /mnt/c and was stopped.
+- Installed backend/requirements-voice.txt into .venv: faster-whisper 1.2.1 (+ ctranslate2, onnxruntime, ...), and
+  av pinned to 15.1.0: av 19 broke decoding (faster-whisper passes `metadata_errors`, removed in av 16+).
+  Model load 1.4 s, ~630 MB RSS; unloads after 2 min idle.
+- Real Gemma tests across the app: race + autopilot, wingmen, slalom + A*, exploration, wind, farm survey (through
+  the farm planner), refusals (moon, flip). Fixed: explore details (dead_reckoning instead of slam, person missed) ->
+  word rules; farm request lost the user's words; model sentence kept after a correction; .capitalize() lowercased GPS.
+- NOT tested with a real voice / microphone (no audio on this machine); webm/opus decoding tested with a generated
+  file. UI not checked in a browser (build passes).

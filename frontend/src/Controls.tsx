@@ -5,6 +5,7 @@ import FieldMap from './FieldMap';
 import MissionPlanner from './MissionPlanner';
 import { api, compassName, sim, useSimUi, useThrottledState, type EkfHealth, type SimState } from './sim';
 import SitlBar from './SitlPanel';
+import VoiceBar from './Voice';
 
 // Held keys move the drone. Uses e.code (the physical key), so it works on any keyboard layout
 // and with Shift held. Arrow keys = same as W/A/S/D; Space/Shift = up/down (like flying in games).
@@ -111,6 +112,7 @@ export default function Controls({ follow, setFollow, onLearn, onOpenLog }: { fo
 
   return (
     <div className="controls">
+      <VoiceBar onLearn={onLearn} />
       <div className="row">
         <button className="primary big" disabled={offline || flying || s?.mode === 'land' || settling}
           onClick={() => sim.send('takeoff', { alt_m: alt })}

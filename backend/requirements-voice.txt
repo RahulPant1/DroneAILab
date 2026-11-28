@@ -1,0 +1,7 @@
+# 🎙 Voice commands (optional). Pinned 2026-11-28. Speech -> text on the CPU, offline.
+# Install: uv pip install --python .venv/bin/python -r backend/requirements-voice.txt
+# The model is NOT downloaded: it is read from the shared Hugging Face cache (~/.cache/huggingface/hub,
+# Systran/faster-whisper-small, already there from another project). Without these packages the rest of
+# DroneLab works; typed commands still do, only the 🎙 microphone button is off.
+faster-whisper==1.2.1
+av==15.1.0  # audio decoding; av 16+ dropped the `metadata_errors` argument faster-whisper 1.2.1 passes (found 2026-11-28)

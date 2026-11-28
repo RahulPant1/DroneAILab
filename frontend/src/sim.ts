@@ -382,6 +382,8 @@ class SimConnection {
   course: Course | null = null;
   race: RaceTrack | null = null;
   cropmaps: CropMap[] = []; // 🌱 from the last survey flown live
+  voice: VoiceReply | null = null; // 🎙 the last voice / typed command's answer (seq goes up with each)
+  voiceSeq = 0;
   status: Status = 'connecting';
   log: LogEntry[] = [];
   version = 0; // bumps on config / status / log changes (not on every state frame)
@@ -409,6 +411,13 @@ class SimConnection {
           this.bump();
         }
         this.stateListeners.forEach((fn) => fn());
+        return;
+      }
+      if (msg.type === 'voice') {
+        this.voice = msg as VoiceReply;
+        this.voiceSeq += 1;
+        this.addLog('info', `🎙 “${msg.heard}” → ${msg.say}`);
+        this.bump();
         return;
       }
       if (msg.type === 'config') this.config = msg.config as DroneConfig;
@@ -501,7 +510,22 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
+/** 🎙 What the drone answered to a voice (or typed) command. */
+export interface VoiceReply {
+  heard: string;
+  say: string; // spoken back
+  source: 'quick' | 'ai' | 'error';
+  pending: boolean; // waiting for "go"
+  actions: string[];
+}
+
 export const api = {
+  voiceStatus: () => getJson<{ available: boolean; detail: string; loaded: boolean }>('/api/voice/status'),
+  voiceTranscribe: async (audio: Blob): Promise<{ text: string; seconds: number }> => {
+    const r = await fetch('/api/voice/transcribe', { method: 'POST', body: audio, headers: { 'Content-Type': audio.type || 'audio/webm' } });
+    if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail ?? `HTTP ${r.status}`);
+    return r.json();
+  },
   health: () => getJson<Health>('/api/health'),
   presets: () => getJson<PresetsResponse>('/api/presets'),
   scenarios: () => getJson<{ planners: string[]; scenarios: Record<string, { title: string }> }>('/api/missions/scenarios'),

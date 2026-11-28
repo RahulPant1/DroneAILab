@@ -399,3 +399,12 @@ ul.timeline li.mode { color: #4cc9f0; }
 /* EKF health line (sensor bar) */
 .ekf-line { margin: 2px 0; }
 .ekf-reject { color: var(--bad); font-weight: 600; }
+
+/* 🎙 voice bar */
+.voice-bar { border-bottom: 1px solid #2c3648; padding-bottom: 6px; margin-bottom: 6px; }
+.voice-mic.recording { background: var(--bad); animation: voice-pulse 1s infinite; }
+@keyframes voice-pulse { 50% { opacity: 0.6; } }
+.voice-type { display: inline-flex; gap: 4px; flex: 1; min-width: 220px; }
+.voice-type input { flex: 1; }
+.voice-reply { margin: 4px 0 0; }
+button.danger { border-color: var(--bad); color: var(--bad); }
