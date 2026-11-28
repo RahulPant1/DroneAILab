@@ -124,6 +124,9 @@ class Flight:
         self.armed = False
         self.mode = self.m.flightmode
         self.gps = {"fix": 0, "sats": 0}
+        self.battery_a: float | None = None
+        self.battery_pct: int | None = None
+        self.throttle_pct: float | None = None
         self.ekf_ok = False  # EKF has a good horizontal position
         self.motor_pct = [0.0, 0.0, 0.0, 0.0]
         self.truth: dict | None = None  # SITL only: where the drone REALLY is (SIMSTATE), vs pos = what the EKF believes
@@ -191,6 +194,10 @@ class Flight:
                 self.params[msg.param_id] = msg.param_value
             elif kind == "SYS_STATUS":
                 self.battery_v = msg.voltage_battery / 1000.0 if msg.voltage_battery not in (0, 65535) else None
+                self.battery_a = msg.current_battery / 100.0 if msg.current_battery >= 0 else None
+                self.battery_pct = msg.battery_remaining if msg.battery_remaining >= 0 else None
+            elif kind == "VFR_HUD":
+                self.throttle_pct = float(msg.throttle)
             elif kind == "GPS_RAW_INT":
                 self.gps = {"fix": msg.fix_type, "sats": msg.satellites_visible}
             elif kind == "EKF_STATUS_REPORT":

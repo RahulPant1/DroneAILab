@@ -1,0 +1,116 @@
+{
+ "parts": {
+  "frame": "classic_450",
+  "motor": "2212_920kv",
+  "prop": "10in",
+  "cells": 3,
+  "capacity_mah": 3000,
+  "payload_kg": 0.0
+ },
+ "builder": {
+  "verdict": "good",
+  "mass_g": 898,
+  "mass_breakdown_g": {
+   "frame": 280,
+   "motors": 232,
+   "props": 48,
+   "battery": 218,
+   "electronics": 120,
+   "payload": 0
+  },
+  "max_thrust_g": 3400,
+  "thrust_to_weight": 3.79,
+  "hover_throttle_pct": 26.4,
+  "hover_power_w": 89.3,
+  "hover_current_a": 8.0,
+  "full_throttle_current_a": 57.0,
+  "battery_max_current_a": 150,
+  "battery_energy_wh": 33.3,
+  "flight_time_min": 16.8,
+  "grams_per_watt": 10.06,
+  "warnings": []
+ },
+ "model": {
+  "mass": 0.898,
+  "diagonal_size": 0.45,
+  "refSpd": 18.64,
+  "refAngle": 45.0,
+  "refVoltage": 11.55,
+  "refCurrent": 8.0,
+  "refAlt": 584.0,
+  "refTempC": 25.0,
+  "refBatRes": 0.02,
+  "maxVoltage": 12.6,
+  "battCapacityAh": 3.0,
+  "hoverThrOut": 0.422,
+  "propExpo": 0.65,
+  "refRotRate": 120.0,
+  "pwmMin": 1000.0,
+  "pwmMax": 2000.0,
+  "spin_min": 0.15,
+  "spin_max": 0.95,
+  "slew_max": 150.0,
+  "disc_area": 0.2027,
+  "mdrag_coef": 0.2,
+  "num_motors": 4
+ },
+ "tests": {
+  "hover": {
+   "throttle_pct": 40.5,
+   "current_a": 7.5,
+   "voltage_v": 12.31,
+   "flight_time_min": 18.0,
+   "battery_pct_used": 3
+  },
+  "radio_lost": {
+   "mode": "RTL",
+   "seconds_to_rtl": 0.8,
+   "back_home_m": 0.2,
+   "ok": true
+  },
+  "battery_low": {
+   "mode": "RTL",
+   "seconds_to_rtl": 10.5,
+   "ok": true,
+   "messages": [
+    "Battery 1 is low 12.16V used 314 mAh",
+    "Battery Failsafe"
+   ]
+  },
+  "autotune": {
+   "result": "AutoTune: Success",
+   "before": {
+    "ATC_RAT_RLL_P": 0.13500000536441803,
+    "ATC_RAT_RLL_I": 0.13500000536441803,
+    "ATC_RAT_RLL_D": 0.003599999938160181,
+    "ATC_RAT_PIT_P": 0.13500000536441803,
+    "ATC_RAT_PIT_I": 0.13500000536441803,
+    "ATC_RAT_PIT_D": 0.003599999938160181,
+    "ATC_RAT_YAW_P": 0.30000001192092896,
+    "ATC_RAT_YAW_I": 0.019999999552965164,
+    "ATC_ANG_RLL_P": 4.5,
+    "ATC_ANG_PIT_P": 4.5,
+    "ATC_ANG_YAW_P": 4.5
+   },
+   "after": {
+    "ATC_RAT_RLL_P": 0.22774598002433777,
+    "ATC_RAT_RLL_I": 0.22774598002433777,
+    "ATC_RAT_RLL_D": 0.00047202646965160966,
+    "ATC_RAT_PIT_P": 0.232352614402771,
+    "ATC_RAT_PIT_I": 0.232352614402771,
+    "ATC_RAT_PIT_D": 0.0006759290699847043,
+    "ATC_RAT_YAW_P": 1.0390636920928955,
+    "ATC_RAT_YAW_I": 0.10390637069940567,
+    "ATC_ANG_RLL_P": 27.75,
+    "ATC_ANG_PIT_P": 27.75,
+    "ATC_ANG_YAW_P": 2.803422451019287
+   },
+   "ok": true
+  }
+ },
+ "files": {
+  "model": "data/twin/model.json",
+  "param": "data/twin/dronelab.param",
+  "qgc": "data/twin/dronelab.params"
+ }
+}

@@ -92,6 +92,25 @@ export default function Builder({ onClose, onLearn }: { onClose: () => void; onL
     sim.send('design', { parts, drain_speedup: drain });
     onClose();
   };
+  // 🛰 the same design on real ArduPilot (its digital twin), and the starting parameter file for the real drone
+  const flyArduPilot = () => {
+    sim.send('sitl', { action: 'start', twin_parts: parts });
+    onClose();
+  };
+  const download = async (format: 'qgc' | 'mp') => {
+    const resp = await fetch('/api/builder/params', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ parts, format }) });
+    const body = await resp.json();
+    if (!resp.ok) {
+      setError(body.detail ?? `HTTP ${resp.status}`);
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([body.text], { type: 'text/plain' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = body.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const r = report;
   return (
@@ -167,6 +186,18 @@ export default function Builder({ onClose, onLearn }: { onClose: () => void; onL
           </label>
           <span className="spacer" />
           <button className="link" onClick={() => onLearn('16-battery-and-builder')}>📖 Learn: build your own</button>
+        </div>
+        <div className="row builder-real">
+          <span className="muted small">For the real drone:</span>
+          <button disabled={!r} onClick={flyArduPilot}
+            title="Start real ArduPilot (SITL) flying THIS design: its weight, thrust, battery, and the starting parameter file below. Fly it from the 🛰 ArduPilot panel (Engineer mode) or QGroundControl.">
+            🛰 Fly its twin on ArduPilot
+          </button>
+          <button disabled={!r} onClick={() => download('qgc')} title="Starting parameters for this build, for QGroundControl (Vehicle Setup > Parameters > Tools > Load from file)">
+            ⬇ Parameters (QGroundControl)
+          </button>
+          <button disabled={!r} onClick={() => download('mp')} title="The same, for Mission Planner or MAVProxy">⬇ (Mission Planner)</button>
+          <button className="link" onClick={() => onLearn('28-digital-twin')}>📖 Learn: from sim to real drone</button>
         </div>
       </article>
     </div>

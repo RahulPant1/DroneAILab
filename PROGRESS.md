@@ -637,3 +637,13 @@ Reviewed the app as a beginner would (a full Fly-view session over the WebSocket
   building's right-hand door was split by a wall (1.0 m + 0.6 m), so the right rooms were never really entered;
   fixed, plus a clearance costmap for planning. Re-ran the 42-flight sweep: building 99 % in ~15 s (was 90-93 % /
   30 s); pursuit crashes 10/12 -> 4/12; DWA 0/24 -> 1/24 (2 cm deer graze, forest); SLAM building 0.10 m mean.
+
+## 🛠 -> 🛰 Digital twin + starting parameter file (2026-11-28, user-approved: "go ahead with #1 and #2")
+- apparams.py + twin.py + Builder buttons + lesson 28 + test_twin.py (2 opt-in real SITL tests; CI SITL job runs them).
+- Measured (docs/results/twin.md): default 450/10"/3S build hover throttle 40.5 % vs 42 % predicted; 5" racer 18 % vs
+  19 %; radio lost -> RTL 0.8 s, landed 0.2 m from take-off; battery low -> RTL 10.5 s; AUTOTUNE success (roll rate
+  P 0.135 -> 0.228; gains are for the simulated airframe, not to copy).
+- What went wrong first: absolute model path -> SITL panic; ARMING_CHECK doesn't exist in 4.7 (ARMING_SKIPCHK);
+  refCurrent scaled for 45° (example comment) but SIM_Frame uses it as hover power -> 60 % too much current; QGC needs
+  types; AUTOTUNE: sporadic RC override expired -> fell out of AltHold; battery failsafe latched -> couldn't re-arm
+  (AUTOTUNE now its own boot); HOME moved on re-arm (measure vs launch point).

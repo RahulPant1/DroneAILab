@@ -105,7 +105,7 @@ FRAMES = {  # SITL model -> extra default parameters on top of copter.parm (as A
 
 def start(speedup: float = 1.0, wipe: bool = True, instance: int | None = None, timeout_s: float = 30.0,
           own_group: bool = True, frame: str = "quad", extra_params: dict[str, float] | None = None,
-          companion_port: bool = False) -> Sitl:
+          companion_port: bool = False, model_json: Path | str | None = None) -> Sitl:
     """Launch ArduCopter SITL (a "+" quad on its built-in physics) and wait until it accepts a ground station.
 
     speedup: run the simulation faster than real time (the autopilot doesn't notice).
@@ -113,6 +113,8 @@ def start(speedup: float = 1.0, wipe: bool = True, instance: int | None = None, 
     frame: "quad" (4 motors) or "hexa" (6 motors: can survive one motor failing).
     extra_params: parameters set at boot (for ones that need a reboot, e.g. PRX1_TYPE, PLND_TYPE, OA_TYPE).
     companion_port: also open SERIAL2 as MAVLink on TCP port 5763 + 10N, for a companion-computer process.
+    model_json: fly this frame model instead (SITL's JSON frame format, e.g. a 🛠 Builder design's digital twin from
+      backend/sim/apparams.sitl_model): an X quad with that mass, size, hover throttle and battery.
     own_group: True = its own process group (Ctrl+C in a terminal doesn't hit it; we stop it ourselves).
       False = stay in the caller's group, so whatever stops the DroneLab server (./run.sh) stops SITL too.
     """
@@ -130,9 +132,13 @@ def start(speedup: float = 1.0, wipe: bool = True, instance: int | None = None, 
         extra = RUN_DIR / f"extra-{n}.parm"
         extra.write_text("".join(f"{k} {v}\n" for k, v in extra_params.items()))
         defaults.append(extra)
+    if model_json:
+        # SITL's file system resolves paths inside its run folder (an absolute path fails to load): copy it there.
+        model_name = f"model-{n}.json"
+        (RUN_DIR / model_name).write_text(Path(model_json).read_text())
     cmd = [
         str(BINARY),
-        "--model", frame,
+        "--model", f"x:{model_name}" if model_json else frame,
         "--speedup", str(speedup),
         "--home", ",".join(str(v) for v in HOME),
         "--defaults", ",".join(str(p) for p in defaults),

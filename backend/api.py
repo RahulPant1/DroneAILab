@@ -20,6 +20,8 @@
   GET  /api/missions/scenarios -> built-in mission courses
   GET  /api/race/tracks       -> rings-race tracks + best times
   GET  /api/builder/parts      -> 🛠 Drone Builder catalogue;  POST /api/builder/design {parts} -> report
+  POST /api/builder/params     -> {parts, format: qgc|mp} -> the starting ArduPilot parameter file for that build
+                               WS {"cmd": "sitl", "action": "start", "twin_parts": {...}} flies its digital twin on ArduPilot
                                WS {"cmd": "design", "parts": {...}, "drain_speedup": 1} flies it on its battery;
                                WS {"cmd": "battery", "enabled", "cells", "capacity_mah", "drain_speedup"}
   GET  /api/logs               -> ArduPilot flight logs (simulator + uploaded .BIN)
@@ -260,6 +262,25 @@ def builder_design(body: dict | None = None) -> dict:
     except builder.DesignError as exc:
         raise HTTPException(400, str(exc)) from None
     return {"report": d["report"], "config": d["config"].to_dict(), "battery": d["battery"].to_dict(), "parts": d["parts"]}
+
+
+@app.post("/api/builder/params")
+def builder_params(body: dict | None = None) -> dict:
+    """🛠 -> 🛰 The starting ArduPilot parameter file for a design: format "qgc" (QGroundControl) or "mp" (Mission
+    Planner / MAVProxy). Returns {filename, text, params: [{name, value, why}]}."""
+    from .sim import apparams
+
+    body = body or {}
+    try:
+        d = builder.design(body.get("parts") or {})
+    except builder.DesignError as exc:
+        raise HTTPException(400, str(exc)) from None
+    fmt = body.get("format", "qgc")
+    if fmt not in ("qgc", "mp"):
+        raise HTTPException(400, 'format must be "qgc" or "mp".')
+    text = apparams.qgc_param_file(d) if fmt == "qgc" else apparams.param_file(d)
+    return {"filename": "dronelab.params" if fmt == "qgc" else "dronelab.param", "text": text,
+            "params": [{"name": n, "value": v, "why": w} for n, v, w in apparams.params(d)]}
 
 
 @app.get("/api/logs")

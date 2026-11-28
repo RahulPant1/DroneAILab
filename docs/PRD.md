@@ -235,6 +235,8 @@ declined by the user (RAM / disk); its navigation ideas are written here in NumP
 Then (2026-11-28) voice commands across the whole Fly view (approved: "yes go ahead, use the shared cache"):
 faster-whisper (optional backend/requirements-voice.txt) reading the small model from the shared Hugging Face cache
 (read-only, no download), fixed phrases + the local LLM choosing from schema enums, "go" confirmation, "stop" first.
+Then (2026-11-28) the digital twin (a Builder design as an ArduCopter SITL frame model) and a starting parameter file
+for the real drone (approved: "go ahead with #1 and #2"). Still simulation only: the file is generated, not flashed.
 Real hardware, firmware hardening and commercial ideas are parked in docs/discuss-later.md (not approved).
 
 ### Roadmap (do NOT install or scaffold)

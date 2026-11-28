@@ -89,7 +89,16 @@ class SitlBridge:
         self.speedup = 1.0
 
     # --- life cycle ------------------------------------------------------------------------------
-    def start(self, speedup: float = 1.0, fault: str | None = None) -> str:
+    def start(self, speedup: float = 1.0, fault: str | None = None, twin_parts: dict | None = None) -> str:
+        """twin_parts: fly a 🛠 Drone Builder design (its digital twin: frame model + starting parameter file)."""
+        twin = None
+        if twin_parts is not None:
+            from .twin import build_files, twin_boot_params
+
+            self.stop()  # a different airframe needs a fresh autopilot
+            files = build_files(twin_parts)  # raises DesignError for a build that can't fly
+            twin = {"model": files["model"], "params": twin_boot_params(files["design"]),
+                    "name": files["design"]["config"].name}
         with self.lock:
             if self.state in ("starting", "waiting_gps", "ready") and fault is None:
                 return "ArduPilot is already running."
@@ -103,16 +112,20 @@ class SitlBridge:
         with self.lock:
             self.state, self.message, self.compare, self.speedup = "starting", "Starting ArduCopter SITL...", None, speedup
             self.log.clear()
-        threading.Thread(target=self._start_worker, args=(speedup, fault), name="sitl-start", daemon=True).start()
+        threading.Thread(target=self._start_worker, args=(speedup, fault, twin), name="sitl-start", daemon=True).start()
+        if twin is not None:
+            return (f"🛰 Starting ArduPilot with YOUR design ({twin['name']}): its frame model and starting parameter "
+                    "file. Fly it from the ArduPilot panel, or connect QGroundControl.")
         if fault is not None:
             return f"Fault injection: {FAULTS_BY_ID[fault].title}. Starting a fresh ArduPilot..."
         return "Starting ArduPilot (the real ArduCopter flight code). GPS + EKF take about 30–45 s to get ready."
 
-    def _start_worker(self, speedup: float, fault_id: str | None = None) -> None:
+    def _start_worker(self, speedup: float, fault_id: str | None = None, twin: dict | None = None) -> None:
         fault = FAULTS_BY_ID[fault_id] if fault_id else None
         try:
             sitl = launch.start(speedup=speedup, wipe=True, own_group=False,  # dies with the server's group
-                                frame=fault.frame if fault else "quad")
+                                frame=fault.frame if fault else "quad",
+                                extra_params=twin["params"] if twin else None, model_json=twin["model"] if twin else None)
             with self.lock:
                 if self.state != "starting":  # stopped while starting
                     sitl.stop()
@@ -406,7 +419,8 @@ class SitlBridge:
         """One WebSocket {"cmd": "sitl", "action": ...} message."""
         action = args.get("action")
         if action == "start":
-            return self.start(float(args.get("speedup", 1.0)))
+            parts = args.get("twin_parts")
+            return self.start(float(args.get("speedup", 1.0)), twin_parts=parts if isinstance(parts, dict) else None)
         if action == "stop":
             return self.stop()
         if action == "takeoff":
